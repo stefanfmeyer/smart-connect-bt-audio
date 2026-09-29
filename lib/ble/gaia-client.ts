@@ -62,7 +62,16 @@ export class GaiaClient {
         optionalServices: [GAIA_SERVICE_UUID],
       });
     } catch (e) {
-      throw new Error(`device picker failed or was dismissed: ${(e as Error).message}`);
+      const msg = (e as Error).message ?? '';
+      if (/globally disabled/i.test(msg)) {
+        throw new Error(
+          'Web Bluetooth is switched off in this browser. In Chrome/Edge open chrome://flags (or edge://flags), search for Web Bluetooth, set it to Enabled and relaunch. On Linux also check chrome://settings/bluetooth. In Brave: Settings > Privacy > additional settings, or brave://flags/#enable-web-bluetooth. Firefox and Safari do not support Web Bluetooth at all.',
+        );
+      }
+      if (/User cancelled|user denied|dismissed/i.test(msg)) {
+        throw new Error('Device picker was closed without selecting headphones.');
+      }
+      throw new Error(`device picker failed: ${msg}`);
     }
 
     this.device = device;
