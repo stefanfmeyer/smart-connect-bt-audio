@@ -384,9 +384,10 @@ export class GaiaClient {
   /** Like exchange(), but pinned to a specific characteristic (probe phase). */
   private exchangeOn(char: BluetoothRemoteGATTCharacteristic, command: number, payload: Uint8Array, timeoutMs: number): Promise<GaiaPacket> {
     const expected = responseFor(command);
-    let rejectOuter: ((e: Error) => void) | null = null;
+    // Held in a ref object so TS control-flow analysis doesn't narrow it to null.
+    const rejectRef: { current: ((e: Error) => void) | null } = { current: null };
     const promise = new Promise<GaiaPacket>((resolve, reject) => {
-      rejectOuter = reject;
+      rejectRef.current = reject;
       const timer = setTimeout(() => {
         if (this.pending?.command === expected) {
           this.pending = null;
@@ -411,7 +412,7 @@ export class GaiaClient {
         if (this.pending?.command === expected) {
           clearTimeout(this.pending.timer);
           this.pending = null;
-          rejectOuter?.(e as Error);
+          rejectRef.current?.(e as Error);
         }
       }
     })();
