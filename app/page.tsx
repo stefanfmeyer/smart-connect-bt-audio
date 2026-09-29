@@ -58,8 +58,8 @@ export default function Home() {
     saveProfiles(next);
   }
 
-  async function handleConnect() {
-    await hp.connect();
+  async function handleConnect(showAll = false) {
+    await hp.connect(showAll);
   }
 
   async function handleNoiseMode(next: NoiseMode) {
@@ -122,7 +122,7 @@ export default function Home() {
           {hp.status === 'connected' ? (
             <button onClick={hp.disconnect}>Disconnect</button>
           ) : (
-            <button className="btn-primary" onClick={handleConnect} disabled={hp.status === 'connecting' || !webBluetoothSupported}>
+            <button className="btn-primary" onClick={() => handleConnect()} disabled={hp.status === 'connecting' || !webBluetoothSupported}>
               Connect headphones
             </button>
           )}
@@ -154,9 +154,18 @@ export default function Home() {
               account, no install, nothing leaves your machine. Headphones must already be paired with this computer in your
               operating system&rsquo;s Bluetooth settings.
             </p>
-            <button className="btn-primary" style={{ alignSelf: 'flex-start' }} onClick={handleConnect} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
+            <button className="btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => handleConnect()} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
               {hp.status === 'connecting' ? 'Connecting…' : 'Connect headphones'}
             </button>
+            <button style={{ alignSelf: 'flex-start' }} onClick={() => handleConnect(true)} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
+              Scan all BLE devices
+            </button>
+            <div className="hint">
+              If your headphones do not appear in the picker, use <strong>Scan all BLE devices</strong> and select them by
+              name (or their MAC-style id if the name is hidden). Chrome filters devices by advertised name; some
+              Sennheiser models only advertise a raw id. Web Bluetooth only discovers BLE advertisements &mdash; if the
+              headphones are idle they may need to be woken (tap a button on them) to advertise.
+            </div>
             <div className="hint">
               Unofficial, independent tool for the Sennheiser range (MOMENTUM, ACCENTUM, CX and similar). Noise control and
               EQ are verified on hardware that exposes the GAIA control service over BLE; devices that only speak it over

@@ -146,7 +146,7 @@ export function useHeadphones() {
     });
   }, []);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (showAllDevices = false) => {
     setError(null);
     setStatus('connecting');
     protocolRef.current = [];
@@ -164,7 +164,7 @@ export function useHeadphones() {
     };
     clientRef.current = client;
     try {
-      const name = await client.connect();
+      const name = await client.connect({ showAllDevices });
       setDeviceName(name);
       setFraming(client.activeFraming);
       setStatus('connected');

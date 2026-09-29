@@ -42,25 +42,34 @@ export class GaiaClient {
     return this.framing;
   }
 
-  async connect(): Promise<string> {
+  async connect(options?: { showAllDevices?: boolean }): Promise<string> {
     if (!navigator.bluetooth) {
       throw new Error('Web Bluetooth is not available. Use Chrome/Edge on desktop over HTTPS or localhost.');
     }
 
-    this.log('requesting device (filters: Sennheiser name prefixes, GAIA service)...');
+    const showAll = options?.showAllDevices ?? false;
+    if (showAll) {
+      this.log('requesting device (showing ALL BLE devices)...');
+    } else {
+      this.log('requesting device (filters: Sennheiser name prefixes, GAIA service)...');
+    }
     let device: BluetoothDevice;
     try {
-      device = await navigator.bluetooth.requestDevice({
-        filters: [
-          { services: [GAIA_SERVICE_UUID] },
-          { namePrefix: 'Sennheiser' },
-          { namePrefix: 'MOMENTUM' },
-          { namePrefix: 'CX' },
-          { namePrefix: 'HD ' },
-          { namePrefix: 'ACCENTUM' },
-        ],
-        optionalServices: [...KNOWN_SERVICE_UUIDS],
-      });
+      device = await navigator.bluetooth.requestDevice(
+        showAll
+          ? { acceptAllDevices: true, optionalServices: [...KNOWN_SERVICE_UUIDS] }
+          : {
+              filters: [
+                { services: [GAIA_SERVICE_UUID] },
+                { namePrefix: 'Sennheiser' },
+                { namePrefix: 'MOMENTUM' },
+                { namePrefix: 'CX' },
+                { namePrefix: 'HD ' },
+                { namePrefix: 'ACCENTUM' },
+              ],
+              optionalServices: [...KNOWN_SERVICE_UUIDS],
+            },
+      );
     } catch (e) {
       const msg = (e as Error).message ?? '';
       if (/globally disabled/i.test(msg)) {
