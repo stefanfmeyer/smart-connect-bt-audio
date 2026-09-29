@@ -1,13 +1,21 @@
 // Windows implementation: Bluetooth Classic RFCOMM GAIA channel.
 //
-// Uses WinRT (windows crate): resolve the paired device's RFCOMM service for
-// the Sennheiser GAIA SDP UUID (a2129ff3-081b-4c45-8afe-469d9c4842ec), open a
+// Uses WinRT (windows crate 0.61): enumerate paired devices' RFCOMM GAIA
+// services (Sennheiser SDP UUID a2129ff3-081b-4c45-8afe-469d9c4842ec), open a
 // StreamSocket, then pump RX through a reader thread that emits `gaia-rx`
 // (byte arrays) and `gaia-closed` events to the frontend.
 //
 // Wire format on this transport is the GAIA SPP frame (FF 03|04 lenHi lenLo
 // vendorHi vendorLo cmdHi cmdLo payload) — see lib/ble/gaia-framing.ts,
 // 'spp-style'.
+//
+// API notes (verified against windows-0.61.1 source):
+//  - RfcommServiceId::FromUuid(GUID) -> RfcommServiceId
+//  - RfcommDeviceService::GetDeviceSelector() -> AQS string for ALL cached
+//    RFCOMM service instances (we filter by service id client-side via
+//    ServiceId().Uuid()); there is no CachedInstancesForServiceId selector.
+//  - RfcommDeviceService::FromIdAsync(HSTRING) -> RfcommDeviceService (not Option)
+//  - RfcommDeviceService::ConnectionHostName() / ServiceName() feed the socket
 
 use super::GaiaDevice;
 use tauri::{AppHandle, Emitter};
@@ -20,18 +28,20 @@ pub struct Connection {
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
+fn gaia_guid() -> windows::core::GUID {
+    // a2129ff3-081b-4c45-8afe-469d9c4842ec
+    windows::core::GUID::from_u128(0xa2129ff3_081b_4c45_8afe_469d9c4842ec)
+}
+
 pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
-    use windows::Devices::Bluetooth::Rfcomm::{RfcommDeviceService, RfcommServiceId};
+    use windows::Devices::Bluetooth::Rfcomm::RfcommDeviceService;
     use windows::Devices::Enumeration::DeviceInformation;
 
-    let service_id = RfcommServiceId::FromUuid(windows::core::GUID::from(GAIA_SDP_UUID))
-        .map_err(|e| format!("RfcommServiceId::FromUuid failed: {e}"))?;
-
-    // Cached instances: services of already-paired devices. No scan needed —
-    // the headphones are paired with Windows at the OS level.
-    let selector = RfcommDeviceService::GetDeviceSelectorForCachedInstancesForServiceId(&service_id)
-        .map_err(|e| format!("selector failed: {e}"))?;
-    let results_op = DeviceInformation::FindAllAsyncAqsFilter(&selector)
+    // All cached RFCOMM service instances on paired devices. The WinRT surface
+    // has no service-id-specific cached-instances selector, so enumerate
+    // broadly and filter by UUID client-side.
+    let selector = RfcommDeviceService::GetDeviceSelector().map_err(|e| format!("selector failed: {e}"))?;
+    let results_op = DeviceInformation::FindAllAsyncAqsFilter(&windows::core::HSTRING::from(selector))
         .map_err(|e| format!("enumeration failed: {e}"))?;
     let results = results_op.get().map_err(|e| format!("enumeration failed: {e}"))?;
 
@@ -39,9 +49,29 @@ pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
     let mut out = Vec::new();
     for i in 0..count {
         let info = results.GetAt(i).map_err(|e| e.to_string())?;
-        let name = info.Name().map(|n| n.to_string()).unwrap_or_default();
         let id = info.Id().map(|n| n.to_string()).unwrap_or_default();
-        out.push(GaiaDevice { id, name });
+
+        // Describe the instance; keep only GAIA (matched by SDP UUID).
+        let describe = (|| -> Result<Option<String>, String> {
+            let service_op = RfcommDeviceService::FromIdAsync(&windows::core::HSTRING::from(&id)).map_err(|e| e.to_string())?;
+            let service = service_op.get().map_err(|e| e.to_string())?;
+            let sid = service.ServiceId().map_err(|e| e.to_string())?;
+            let uuid = sid.Uuid().map_err(|e| e.to_string())?;
+            if uuid != gaia_guid() {
+                return Ok(None);
+            }
+            let name = service
+                .Device()
+                .and_then(|d| d.Name())
+                .map(|n| n.to_string())
+                .unwrap_or_default();
+            Ok(Some(name))
+        })();
+        match describe {
+            Ok(Some(name)) => out.push(GaiaDevice { id, name }),
+            Ok(None) => continue,
+            Err(_) => continue, // inaccessible instance (consent revoked etc.)
+        }
     }
     Ok(out)
 }
@@ -53,27 +83,15 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
 
     let service_op = RfcommDeviceService::FromIdAsync(&windows::core::HSTRING::from(device_id))
         .map_err(|e| format!("service resolve failed: {e}"))?;
-    let service = match service_op.get().map_err(|e| e.to_string())? {
-        Some(s) => s,
-        None => {
-            return Err(
-                "RFCOMM service not found — are the headphones paired in Windows Bluetooth settings, \
-                 and has this app been granted access to them?"
-                    .into(),
-            )
-        }
-    };
+    let service = service_op.get().map_err(|e| format!("service resolve failed: {e}"))?;
 
-    // RfcommDeviceService.Device() is already a BluetoothDevice.
-    let bt_device = service.Device().map_err(|e| format!("device handle failed: {e}"))?;
-    let device_name = bt_device
-        .Name()
+    let device_name = service
+        .Device()
+        .and_then(|d| d.Name())
         .map(|n| n.to_string())
         .unwrap_or_else(|_| fallback_name.to_string());
 
-    let host_name = bt_device
-        .ConnectionHostName()
-        .map_err(|e| format!("host name failed: {e}"))?;
+    let host_name = service.ConnectionHostName().map_err(|e| format!("host name failed: {e}"))?;
     let service_name = service.ServiceName().map_err(|e| format!("service name failed: {e}"))?;
 
     let socket = StreamSocket::new().map_err(|e| e.to_string())?;
@@ -81,7 +99,11 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
         .ConnectAsync(&host_name, &service_name)
         .map_err(|e| format!("socket connect failed: {e}"))?
         .get()
-        .map_err(|e| format!("RFCOMM connect failed (is the official Smart Control app holding the link?): {e}"))?;
+        .map_err(|e| {
+            format!(
+                "RFCOMM connect failed: {e}. If this persists, the official Smart Control app may be holding the control link — close it and retry."
+            )
+        })?;
 
     let out = socket.OutputStream().map_err(|e| e.to_string())?;
     let writer = DataWriter::CreateDataWriter(&out).map_err(|e| e.to_string())?;
@@ -140,7 +162,8 @@ pub fn write(conn: &Connection, bytes: &[u8]) -> Result<(), String> {
 }
 
 pub fn disconnect(conn: Connection) {
-    conn.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    conn.cancel
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     if let Some(writer) = conn.writer.lock().unwrap().take() {
         let _ = writer.FlushAsync();
     }
