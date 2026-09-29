@@ -99,6 +99,7 @@ export class GaiaClient {
     // is invisible to us (and to the user in the picker).
     const services = await server.getPrimaryServices();
     this.log(`${services.length} service(s) visible to the browser`);
+    const inventory: string[] = [];
     let service: BluetoothRemoteGATTService | null = null;
     let dataChar: BluetoothRemoteGATTCharacteristic | null = null;
 
@@ -108,8 +109,11 @@ export class GaiaClient {
         chars = await s.getCharacteristics();
       } catch {
         this.log(`  service ${s.uuid}: characteristics unreadable`);
+        inventory.push(`${shortUuid(s.uuid)}[?]`);
         continue;
       }
+      const charIds = chars.map((c) => `${shortUuid(c.uuid)}[${Object.keys(c.properties ?? {}).filter((k) => (c.properties as Record<string, boolean>)[k]).map((p) => p.slice(0, 4)).join(',')}]`);
+      inventory.push(`${shortUuid(s.uuid)}{${charIds.join(' ')}}`);
       this.log(`  service ${s.uuid} (${chars.length} characteristic(s))`);
       for (const c of chars) {
         const props = Object.keys(c.properties ?? {})
@@ -132,10 +136,11 @@ export class GaiaClient {
 
     if (!service || !dataChar) {
       this.log('!! no GAIA data endpoint (f6cd/f6ce) in any visible service');
+      const inv = inventory.join('  ');
       throw new Error(
         services.length === 0
           ? 'The browser can see no BLE services on these headphones. Either they only expose their control service over Bluetooth Classic (unreachable from any browser), or the service UUID is not yet whitelisted in this app — open the Protocol console and file the log as an issue so support can be added.'
-          : 'Found BLE services but no GAIA data endpoint (f6cd/f6ce) among them. This model likely exposes its control service only over Bluetooth Classic, which browsers cannot reach. Protocol console has the full service inventory.',
+          : `No GAIA data endpoint (f6cd/f6ce) in the visible services. Inventory: ${inv}. This model likely exposes its control service only over Bluetooth Classic, which browsers cannot reach.`,
       );
     }
     this.characteristic = dataChar;
@@ -288,6 +293,12 @@ export class GaiaClient {
 
 function hex16(v: number): string {
   return `0000${v.toString(16)}`.slice(-4);
+}
+
+/** Compact UUID for inventory lines: 0000fcd7-0000-1000-8000-00805f9b34fb -> fcd7. */
+function shortUuid(uuid: string): string {
+  const m = /([0-9a-fA-F]{4})-0000-1000-8000-00805f9b34fb/.exec(uuid);
+  return m ? m[1] : uuid.length > 8 ? uuid.slice(0, 8) : uuid;
 }
 
 export { decodePacket };
