@@ -9,7 +9,7 @@
  */
 
 import { decodePacket, encodePacket, GaiaPacket, hex, isErrorResponse, packetType, responseFor, VENDOR_ID } from './gaia';
-import { decodeStream, framePacket, GAIA_DATA_V1, GAIA_DATA_V3_V2, GAIA_SERVICE_UUID, Framing, newDecodeState } from './gaia-framing';
+import { decodeStream, framePacket, GAIA_DATA_V1, GAIA_DATA_V3_V2, GAIA_SERVICE_UUID, KNOWN_SERVICE_UUIDS, Framing, newDecodeState } from './gaia-framing';
 
 export type LogSink = (line: string) => void;
 
@@ -59,7 +59,7 @@ export class GaiaClient {
           { namePrefix: 'HD ' },
           { namePrefix: 'ACCENTUM' },
         ],
-        optionalServices: [GAIA_SERVICE_UUID],
+        optionalServices: [...KNOWN_SERVICE_UUIDS],
       });
     } catch (e) {
       const msg = (e as Error).message ?? '';
@@ -83,39 +83,51 @@ export class GaiaClient {
 
     this.log(`connecting GATT to "${device.name ?? device.id}"...`);
     const server = await device.gatt!.connect();
-    this.log('GATT connected, discovering GAIA service...');
+    this.log('GATT connected, enumerating services...');
 
-    // Try the standard GAIA service first; fall back to listing all services.
+    // Walk every whitelisted service and inventory its characteristics.
+    // Chrome only exposes services listed in optionalServices; anything else
+    // is invisible to us (and to the user in the picker).
+    const services = await server.getPrimaryServices();
+    this.log(`${services.length} service(s) visible to the browser`);
     let service: BluetoothRemoteGATTService | null = null;
-    try {
-      service = await server.getPrimaryService(GAIA_SERVICE_UUID);
-      this.log(`GAIA service ${hex16(GAIA_SERVICE_UUID)} found`);
-    } catch {
-      this.log('standard GAIA service absent; enumerating all services...');
-      const services = await server.getPrimaryServices();
-      for (const s of services) {
-        this.log(`  service ${s.uuid}`);
+    let dataChar: BluetoothRemoteGATTCharacteristic | null = null;
+
+    for (const s of services) {
+      let chars: BluetoothRemoteGATTCharacteristic[] = [];
+      try {
+        chars = await s.getCharacteristics();
+      } catch {
+        this.log(`  service ${s.uuid}: characteristics unreadable`);
+        continue;
       }
-      if (services.length === 0) throw new Error('no GATT services exposed — device may be in a mode that blocks BLE control');
-      service = services[services.length - 1];
-      this.log(`using ${service.uuid} as data service (last listed)`);
+      this.log(`  service ${s.uuid} (${chars.length} characteristic(s))`);
+      for (const c of chars) {
+        const props = Object.keys(c.properties ?? {})
+          .filter((k) => (c.properties as Record<string, boolean>)[k])
+          .join('|');
+        this.log(`    char ${c.uuid} [${props}]`);
+      }
+      if (!dataChar) {
+        for (const uuid of [GAIA_DATA_V3_V2, GAIA_DATA_V1]) {
+          const found = chars.find((c) => c.uuid.toLowerCase().includes(uuid));
+          if (found) {
+            service = s;
+            dataChar = found;
+            this.log(`  -> GAIA data endpoint ${uuid} found in ${s.uuid}`);
+            break;
+          }
+        }
+      }
     }
 
-    // Find the GAIA data characteristic (v3/v2 first, then v1).
-    let dataChar: BluetoothRemoteGATTCharacteristic | null = null;
-    for (const uuid of [GAIA_DATA_V3_V2, GAIA_DATA_V1]) {
-      try {
-        dataChar = await service.getCharacteristic(uuid);
-        this.log(`data characteristic ${uuid} found`);
-        break;
-      } catch {
-        this.log(`  characteristic ${uuid} absent`);
-      }
-    }
-    if (!dataChar) {
-      const all = await service.getCharacteristics();
-      for (const c of all) this.log(`  characteristic ${c.uuid} props=${Object.keys(c.properties ?? {}).filter((k) => (c.properties as Record<string, boolean>)[k]).join('|')}`);
-      throw new Error('no GAIA data characteristic found on this device');
+    if (!service || !dataChar) {
+      this.log('!! no GAIA data endpoint (f6cd/f6ce) in any visible service');
+      throw new Error(
+        services.length === 0
+          ? 'The browser can see no BLE services on these headphones. Either they only expose their control service over Bluetooth Classic (unreachable from any browser), or the service UUID is not yet whitelisted in this app — open the Protocol console and file the log as an issue so support can be added.'
+          : 'Found BLE services but no GAIA data endpoint (f6cd/f6ce) among them. This model likely exposes its control service only over Bluetooth Classic, which browsers cannot reach. Protocol console has the full service inventory.',
+      );
     }
     this.characteristic = dataChar;
 

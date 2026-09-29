@@ -23,11 +23,13 @@ export default function Home() {
   const [showConsole, setShowConsole] = useState(false);
   const [localLevel, setLocalLevel] = useState<number | null>(null);
   const [localEq, setLocalEq] = useState<number[] | null>(null);
+  const [mounted, setMounted] = useState(false);
   const levelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eqTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consoleRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    setMounted(true);
     setProfiles(loadProfiles());
   }, []);
 
@@ -40,6 +42,11 @@ export default function Home() {
   const eqBands = localEq ?? hp.snapshot.eqBands;
   const transparencyLevel = localLevel ?? hp.snapshot.transparencyLevel ?? 100;
   const mode = hp.mode;
+
+  // Browser-capability dependent UI must only render after hydration.
+  // navigator.bluetooth differs between server (absent) and Chrome (present),
+  // which would otherwise trip React hydration error #418.
+  const webBluetoothSupported = mounted && hp.webBluetoothSupported;
 
   const eqSummary = useMemo(() => {
     if (!eqBands) return '';
@@ -115,7 +122,7 @@ export default function Home() {
           {hp.status === 'connected' ? (
             <button onClick={hp.disconnect}>Disconnect</button>
           ) : (
-            <button className="btn-primary" onClick={handleConnect} disabled={hp.status === 'connecting' || !hp.webBluetoothSupported}>
+            <button className="btn-primary" onClick={handleConnect} disabled={hp.status === 'connecting' || !webBluetoothSupported}>
               Connect headphones
             </button>
           )}
@@ -123,7 +130,7 @@ export default function Home() {
       </header>
 
       <main className="app-main">
-        {!hp.webBluetoothSupported && (
+        {!webBluetoothSupported && (
           <div className="banner">
             <span>
               This browser does not expose Web Bluetooth. Use Chrome, Edge or Opera on a desktop with Bluetooth, served over
@@ -147,7 +154,7 @@ export default function Home() {
               account, no install, nothing leaves your machine. Headphones must already be paired with this computer in your
               operating system&rsquo;s Bluetooth settings.
             </p>
-            <button className="btn-primary" style={{ alignSelf: 'flex-start' }} onClick={handleConnect} disabled={!hp.webBluetoothSupported || hp.status === 'connecting'}>
+            <button className="btn-primary" style={{ alignSelf: 'flex-start' }} onClick={handleConnect} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
               {hp.status === 'connecting' ? 'Connecting…' : 'Connect headphones'}
             </button>
             <div className="hint">

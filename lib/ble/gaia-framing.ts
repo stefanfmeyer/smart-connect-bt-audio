@@ -19,6 +19,23 @@ export const GAIA_DATA_V3_V2 = 'f6ce'; // GAIA v3 / v2 data endpoint (TX + notif
 export const GAIA_DATA_V1 = 'f6cd'; // GAIA v1 data endpoint (legacy)
 export const GAIA_COMMAND_TRIGGER = 'f6cf'; // write-only trigger characteristic
 
+/**
+ * Every BLE service UUID we may need to touch, whitelisted so Chrome's Web
+ * Bluetooth implementation will expose them after requestDevice(). Chrome
+ * HIDES any service not listed here — if the GAIA service lives under a UUID
+ * absent from this list, getPrimaryServices() returns nothing and Chrome
+ * reports "No Services found in device".
+ */
+export const KNOWN_SERVICE_UUIDS = [
+  GAIA_SERVICE_UUID, // 0xfcd7 — Qualcomm GAIA
+  0xfcf7, // alternative GAIA service seen on some stacks
+  0xfcfe, // Sennheiser TWS BLE service (Smart Control companion service)
+  0xfdff, // Sennheiser BTD 800 / dialog service family
+  0xfe59, // Nordic DFU/OpenSK style service (harmless to whitelist)
+  'battery_service',
+  'device_information',
+] as const;
+
 /** GAIA v3 packet-type bits for the fragmentation header flags. */
 export const GAIA_PACKET_FORMAT_VERSION = 0b10; // v3
 const FLAG_START = 0b00000001;
