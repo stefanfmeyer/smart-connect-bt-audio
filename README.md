@@ -81,6 +81,6 @@ scope.
 
 ## Trademark and warranty
 
-OpenMomentum is independent and is not affiliated with, authorized by, endorsed by, or supported by Sennheiser or Sonova. Sennheiser and MOMENTUM are trademarks of their respective owners and are used only to identify compatible hardware.
+This app is independent and is not affiliated with, authorized by, endorsed by, or supported by Sennheiser or Sonova. Sennheiser and MOMENTUM are trademarks of their respective owners and are used only to identify compatible hardware.
 
 The software is provided without warranty under the MIT License.
