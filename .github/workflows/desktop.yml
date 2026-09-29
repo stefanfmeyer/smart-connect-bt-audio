@@ -28,6 +28,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Rust check (verbose tail on failure)
+        shell: pwsh
+        run: |
+          cd src-tauri
+          cargo check --target x86_64-pc-windows-msvc 2>&1 | Tee-Object -FilePath cargo-check.log | Select-Object -Last 40
+          if ($LASTEXITCODE -ne 0) { Get-Content cargo-check.log -Tail 150; exit 1 }
+
       - name: Build Tauri app (Windows)
         uses: tauri-apps/tauri-action@v0
         env:
