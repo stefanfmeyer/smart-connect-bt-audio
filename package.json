@@ -7,7 +7,7 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "build:export": "TAURI_BUILD=1 next build --turbopack"
+    "build:export": "cross-env TAURI_BUILD=1 next build --turbopack"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",
@@ -19,6 +19,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
     "typescript": "^5"
   }
 }
