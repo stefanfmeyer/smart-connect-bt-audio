@@ -100,8 +100,14 @@ export class GaiaClient {
     const services = await server.getPrimaryServices();
     this.log(`${services.length} service(s) visible to the browser`);
     const inventory: string[] = [];
-    let service: BluetoothRemoteGATTService | null = null;
-    let dataChar: BluetoothRemoteGATTCharacteristic | null = null;
+
+    interface Candidate {
+      service: BluetoothRemoteGATTService;
+      char: BluetoothRemoteGATTCharacteristic;
+      label: string;
+    }
+    const candidates: Candidate[] = [];
+    let batteryChar: BluetoothRemoteGATTCharacteristic | null = null;
 
     for (const s of services) {
       let chars: BluetoothRemoteGATTCharacteristic[] = [];
@@ -112,38 +118,81 @@ export class GaiaClient {
         inventory.push(`${shortUuid(s.uuid)}[?]`);
         continue;
       }
-      const charIds = chars.map((c) => `${shortUuid(c.uuid)}[${Object.keys(c.properties ?? {}).filter((k) => (c.properties as Record<string, boolean>)[k]).map((p) => p.slice(0, 4)).join(',')}]`);
+      const charIds = chars.map((c) => `${shortUuid(c.uuid)}[${propsOf(c)}]`);
       inventory.push(`${shortUuid(s.uuid)}{${charIds.join(' ')}}`);
       this.log(`  service ${s.uuid} (${chars.length} characteristic(s))`);
       for (const c of chars) {
-        const props = Object.keys(c.properties ?? {})
-          .filter((k) => (c.properties as Record<string, boolean>)[k])
-          .join('|');
-        this.log(`    char ${c.uuid} [${props}]`);
+        this.log(`    char ${c.uuid} [${propsOf(c)}]`);
       }
-      if (!dataChar) {
-        for (const uuid of [GAIA_DATA_V3_V2, GAIA_DATA_V1]) {
-          const found = chars.find((c) => c.uuid.toLowerCase().includes(uuid));
-          if (found) {
-            service = s;
-            dataChar = found;
-            this.log(`  -> GAIA data endpoint ${uuid} found in ${s.uuid}`);
-            break;
-          }
+
+      if (shortUuid(s.uuid) === '180f') {
+        const b = chars.find((c) => shortUuid(c.uuid) === '2a19');
+        if (b) batteryChar = b;
+      }
+
+      // GAIA data endpoints under the classic UUIDs...
+      for (const uuid of [GAIA_DATA_V3_V2, GAIA_DATA_V1]) {
+        const found = chars.find((c) => c.uuid.toLowerCase().includes(uuid));
+        if (found) {
+          candidates.push({ service: s, char: found, label: `${shortUuid(s.uuid)}/${shortUuid(found.uuid)}` });
         }
       }
     }
 
-    if (!service || !dataChar) {
-      this.log('!! no GAIA data endpoint (f6cd/f6ce) in any visible service');
+    // ...plus Sennheiser's proprietary companion service (fcfe, 6333xxxx
+    // characteristics) seen on MOMENTUM 4. Not GAIA's f6cd/f6ce, but it is the
+    // only vendor-specific BLE surface the device exposes, so probe it.
+    for (const s of services) {
+      if (shortUuid(s.uuid) !== 'fcfe') continue;
+      let chars: BluetoothRemoteGATTCharacteristic[] = [];
+      try {
+        chars = await s.getCharacteristics();
+      } catch {
+        continue;
+      }
+      for (const c of chars) {
+        const p = propsOf(c);
+        if (p.includes('write') || p.includes('notify') || p.includes('indicate')) {
+          candidates.push({ service: s, char: c, label: `${shortUuid(s.uuid)}/${shortUuid(c.uuid)}` });
+        }
+      }
+    }
+
+    if (candidates.length === 0) {
+      this.log('!! no candidate data endpoints in any visible service');
       const inv = inventory.join('  ');
       throw new Error(
         services.length === 0
           ? 'The browser can see no BLE services on these headphones. Either they only expose their control service over Bluetooth Classic (unreachable from any browser), or the service UUID is not yet whitelisted in this app — open the Protocol console and file the log as an issue so support can be added.'
-          : `No GAIA data endpoint (f6cd/f6ce) in the visible services. Inventory: ${inv}. This model likely exposes its control service only over Bluetooth Classic, which browsers cannot reach.`,
+          : `No candidate data endpoints in the visible services. Inventory: ${inv}. This model likely exposes its control service only over Bluetooth Classic, which browsers cannot reach.`,
       );
     }
-    this.characteristic = dataChar;
+
+    this.log(`probing ${candidates.length} candidate endpoint(s): ${candidates.map((c) => c.label).join(', ')}`);
+    const probed = await this.probeEndpoints(candidates);
+    if (!probed) {
+      this.log('!! no candidate endpoint answered the GAIA battery query');
+      throw new Error(
+        `Connected, but none of the candidate endpoints (${candidates.map((c) => c.label).join(', ')}) answered a GAIA command. ` +
+          'This confirms the control channel on this device runs over Bluetooth Classic only — unreachable from any browser. ' +
+          'Standard battery remains readable over BLE (see Device card).',
+      );
+    }
+    this.characteristic = probed.char;
+    this.framing = probed.framing;
+    this.log(`using endpoint ${shortUuid(probed.char.uuid)} with ${probed.framing} framing`);
+
+    // Battery service works regardless of the control channel.
+    if (batteryChar) {
+      try {
+        const v = await batteryChar.readValue();
+        if (v.byteLength >= 1) {
+          this.log(`BLE battery service reports ${v.getUint8(0)}%`);
+        }
+      } catch {
+        this.log('battery service read failed (may need pairing consent)');
+      }
+    }
 
     this.log('subscribing to notifications...');
     this.notificationHandler = (event: Event) => {
@@ -153,14 +202,10 @@ export class GaiaClient {
       const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
       this.ingest(bytes);
     };
-    await dataChar.startNotifications();
-    dataChar.addEventListener('characteristicvaluechanged', this.notificationHandler);
+    await this.characteristic.startNotifications();
+    this.characteristic.addEventListener('characteristicvaluechanged', this.notificationHandler);
 
-    this.log('probing framing with battery query...');
-    const probe = await this.probeFraming();
-    this.framing = probe;
-
-    this.log(`connected. framing=${this.framing}`);
+    this.log(`connected. endpoint=${shortUuid(this.characteristic.uuid)} framing=${this.framing}`);
     return device.name ?? device.id;
   }
 
@@ -269,25 +314,108 @@ export class GaiaClient {
   onNotification: ((packet: GaiaPacket) => void) | null = null;
 
   /**
-   * Probe: send the battery query under gatt-v3 framing; if no valid response
-   * arrives, switch framing to spp-style and retry once.
+   * Probe candidate endpoints until one answers a GAIA battery query.
+   * For each endpoint: subscribe if notify/indicate capable, then send the
+   * battery query under each framing. A valid 0x0703 response settles both
+   * the endpoint and the wire framing in one step.
    */
-  private async probeFraming(): Promise<Framing> {
-    const attempt = async (framing: Framing): Promise<GaiaPacket> => {
-      this.framing = framing;
-      const packet: GaiaPacket = { vendorId: VENDOR_ID, command: 0x0603, payload: new Uint8Array(0) };
-      const framed = framePacket(packet, framing, this.sequence++ & 0xff);
-      this.log(`probe TX (${framing}) ${hex(framed.bytes)}`);
-      return this.exchange(0x0603, new Uint8Array(0), 2500);
-    };
-    try {
-      await attempt('gatt-v3');
-      return 'gatt-v3';
-    } catch (e) {
-      this.log(`gatt-v3 probe failed (${(e as Error).message}); retrying with spp-style framing`);
+  private async probeEndpoints(
+    candidates: Array<{ service: BluetoothRemoteGATTService; char: BluetoothRemoteGATTCharacteristic; label: string }>,
+  ): Promise<{ char: BluetoothRemoteGATTCharacteristic; framing: Framing } | null> {
+    const probePayload = new Uint8Array(0);
+
+    for (const candidate of candidates) {
+      const p = propsOf(candidate.char);
+      this.log(`-- probing ${candidate.label} [${p}]`);
+
+      // Subscribe first when possible so the response can arrive as a notification.
+      let handler: ((event: Event) => void) | null = null;
+      if (p.includes('notify') || p.includes('indicate')) {
+        handler = (event: Event) => {
+          const target = event.target as BluetoothRemoteGATTCharacteristic;
+          const value = target.value;
+          if (!value) return;
+          const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+          this.ingest(bytes);
+        };
+        try {
+          await candidate.char.startNotifications();
+          candidate.char.addEventListener('characteristicvaluechanged', handler);
+          this.log(`   subscribed to notifications on ${candidate.label}`);
+        } catch (e) {
+          this.log(`   subscribe failed: ${(e as Error).message}`);
+        }
+      }
+
+      for (const framing of ['gatt-v3', 'spp-style'] as Framing[]) {
+        this.framing = framing;
+        this.decodeState = newDecodeState();
+        try {
+          const framed = framePacket({ vendorId: VENDOR_ID, command: 0x0603, payload: probePayload }, framing, this.sequence++ & 0xff);
+          this.log(`   probe TX (${framing}) ${hex(framed.bytes)}`);
+          const response = await this.exchangeOn(candidate.char, 0x0603, probePayload, 2000);
+          this.log(`   -> answered with 0x${response.command.toString(16).padStart(4, '0')}`);
+          if (handler) {
+            candidate.char.removeEventListener('characteristicvaluechanged', handler);
+          }
+          try {
+            await candidate.char.stopNotifications();
+          } catch {
+            /* keep going */
+          }
+          return { char: candidate.char, framing };
+        } catch (e) {
+          this.log(`   no answer (${framing}): ${(e as Error).message}`);
+        }
+      }
+
+      if (handler) {
+        candidate.char.removeEventListener('characteristicvaluechanged', handler);
+        try {
+          await candidate.char.stopNotifications();
+        } catch {
+          /* keep going */
+        }
+      }
     }
-    await attempt('spp-style');
-    return 'spp-style';
+    return null;
+  }
+
+  /** Like exchange(), but pinned to a specific characteristic (probe phase). */
+  private exchangeOn(char: BluetoothRemoteGATTCharacteristic, command: number, payload: Uint8Array, timeoutMs: number): Promise<GaiaPacket> {
+    const expected = responseFor(command);
+    let rejectOuter: ((e: Error) => void) | null = null;
+    const promise = new Promise<GaiaPacket>((resolve, reject) => {
+      rejectOuter = reject;
+      const timer = setTimeout(() => {
+        if (this.pending?.command === expected) {
+          this.pending = null;
+          reject(new Error(`timeout after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+      this.pending = { command: expected, resolve, reject, timer };
+    });
+    const packet: GaiaPacket = { vendorId: VENDOR_ID, command, payload };
+    const framed = framePacket(packet, this.framing, this.sequence++ & 0xff);
+    void (async () => {
+      try {
+        const copy = new Uint8Array(framed.bytes.length);
+        copy.set(framed.bytes);
+        const withResponse = char.writeValueWithResponse;
+        if (withResponse) {
+          await withResponse.call(char, copy.buffer);
+        } else {
+          await char.writeValue(copy.buffer);
+        }
+      } catch (e) {
+        if (this.pending?.command === expected) {
+          clearTimeout(this.pending.timer);
+          this.pending = null;
+          rejectOuter?.(e as Error);
+        }
+      }
+    })();
+    return promise;
   }
 }
 
@@ -299,6 +427,18 @@ function hex16(v: number): string {
 function shortUuid(uuid: string): string {
   const m = /([0-9a-fA-F]{4})-0000-1000-8000-00805f9b34fb/.exec(uuid);
   return m ? m[1] : uuid.length > 8 ? uuid.slice(0, 8) : uuid;
+}
+
+/**
+ * List a characteristic's properties. Chrome's BluetoothCharacteristicProperties
+ * keeps its flags on the prototype, so Object.keys() returns [] — enumerate
+ * the known property names explicitly instead.
+ */
+function propsOf(c: BluetoothRemoteGATTCharacteristic): string {
+  const p = c.properties as unknown as Record<string, boolean> | undefined;
+  if (!p) return '?';
+  const names = ['broadcast', 'read', 'writeWithoutResponse', 'write', 'notify', 'indicate', 'authenticatedSignedWrites', 'reliableWrite', 'writableAuxiliaries'];
+  return names.filter((n) => p[n] === true).join('|') || 'none';
 }
 
 export { decodePacket };
