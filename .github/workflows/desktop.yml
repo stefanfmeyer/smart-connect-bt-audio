@@ -3,11 +3,6 @@ name: Build Windows desktop app
 on:
   push:
     branches: [main]
-    paths:
-      - 'src-tauri/**'
-      - 'app/**'
-      - 'lib/**'
-      - '.github/workflows/desktop.yml'
   workflow_dispatch:
 
 jobs:
