@@ -1,0 +1,4 @@
+:root {
+  --font: var(--font-figtree, "Figtree"), sans-serif;
+  --font-heading: var(--font-outfit, "Outfit"), sans-serif;
+}
