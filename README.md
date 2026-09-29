@@ -84,3 +84,14 @@ scope.
 This app is independent and is not affiliated with, authorized by, endorsed by, or supported by Sennheiser or Sonova. Sennheiser and MOMENTUM are trademarks of their respective owners and are used only to identify compatible hardware.
 
 The software is provided without warranty under the MIT License.
+
+## Windows desktop app
+
+The web app is limited by browsers: Web Bluetooth only speaks BLE GATT, and the
+MOMENTUM 4 control channel (verified by hardware probe against the `fcfe`
+companion service) runs over Bluetooth Classic RFCOMM only. The Tauri desktop
+app in this repo uses the WinRT RFCOMM API to reach it.
+
+Build: GitHub Actions builds the Windows installer on every push (artifact
+`smart-connect-windows-x64`), or locally with `npm install && npx tauri build`.
+Requires the headphones to be paired in Windows Bluetooth settings.
