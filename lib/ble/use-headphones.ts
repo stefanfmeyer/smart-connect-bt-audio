@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GaiaClient } from './gaia-client';
 import { GaiaPacket, hex } from './gaia';
+import { isTauri } from './tauri-bridge';
+import { connectTauri, TransportSession } from './transport';
 import {
   AncModes,
   audioModePayload,
@@ -74,6 +76,7 @@ export function currentNoiseMode(s: Snapshot): NoiseMode | null {
 
 export function useHeadphones() {
   const clientRef = useRef<GaiaClient | null>(null);
+  const tauriSessionRef = useRef<TransportSession | null>(null);
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [framing, setFraming] = useState<string | null>(null);
@@ -146,39 +149,68 @@ export function useHeadphones() {
     });
   }, []);
 
-  const connect = useCallback(async (showAllDevices = false) => {
-    setError(null);
-    setStatus('connecting');
-    protocolRef.current = [];
-    const client = new GaiaClient((text) => {
-      const isTx = text.startsWith('TX ');
-      const isRx = text.startsWith('RX ');
-      log(isTx ? 'tx' : isRx ? 'rx' : 'info', text);
-    });
-    client.onNotification = (packet) => applyPacket(packet);
-    client.onDisconnected = () => {
-      setStatus('disconnected');
-      setDeviceName(null);
-      setFraming(null);
-      log('err', 'disconnected');
-    };
-    clientRef.current = client;
-    try {
-      const name = await client.connect({ showAllDevices });
-      setDeviceName(name);
-      setFraming(client.activeFraming);
-      setStatus('connected');
-      await refreshSnapshot();
-    } catch (e) {
-      setStatus('disconnected');
-      setError(describeError(e));
-      log('err', `connect failed: ${(e as Error).message}`);
-      clientRef.current?.disconnect();
-    }
+  const connect = useCallback(
+    async (showAllDevices = false) => {
+      setError(null);
+      setStatus('connecting');
+      protocolRef.current = [];
+
+      // Desktop (Tauri): Bluetooth Classic RFCOMM via the Rust backend.
+      // The GAIA protocol layer is identical; only the byte pipe differs.
+      if (isTauri()) {
+        try {
+          const session = await connectTauri((text) => {
+            const isTx = text.startsWith('TX ');
+            const isRx = text.startsWith('RX ');
+            log(isTx ? 'tx' : isRx ? 'rx' : 'info', text);
+          });
+          tauriSessionRef.current = session;
+          setDeviceName(session.deviceName);
+          setFraming(session.framing);
+          setStatus('connected');
+          await refreshSnapshot();
+        } catch (e) {
+          setStatus('disconnected');
+          setError(describeError(e));
+          log('err', `connect failed: ${(e as Error).message}`);
+        }
+        return;
+      }
+
+      // Browser: Web Bluetooth.
+      const client = new GaiaClient((text) => {
+        const isTx = text.startsWith('TX ');
+        const isRx = text.startsWith('RX ');
+        log(isTx ? 'tx' : isRx ? 'rx' : 'info', text);
+      });
+      client.onNotification = (packet) => applyPacket(packet);
+      client.onDisconnected = () => {
+        setStatus('disconnected');
+        setDeviceName(null);
+        setFraming(null);
+        log('err', 'disconnected');
+      };
+      clientRef.current = client;
+      try {
+        const name = await client.connect({ showAllDevices });
+        setDeviceName(name);
+        setFraming(client.activeFraming);
+        setStatus('connected');
+        await refreshSnapshot();
+      } catch (e) {
+        setStatus('disconnected');
+        setError(describeError(e));
+        log('err', `connect failed: ${(e as Error).message}`);
+        clientRef.current?.disconnect();
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyPacket, log]);
+    [applyPacket, log],
+  );
 
   const disconnect = useCallback(() => {
+    tauriSessionRef.current?.close();
+    tauriSessionRef.current = null;
     clientRef.current?.disconnect();
     setStatus('disconnected');
     setDeviceName(null);

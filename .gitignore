@@ -8,6 +8,10 @@
 # production
 /build
 
+# tauri / rust
+/src-tauri/target/
+/src-tauri/gen/schemas/
+
 # misc
 .DS_Store
 *.pem

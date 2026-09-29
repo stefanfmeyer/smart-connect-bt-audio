@@ -251,6 +251,11 @@ export class GaiaClient {
     }
   }
 
+  /** Write raw bytes on the active transport (no request/response framing). */
+  async writeRaw(bytes: Uint8Array): Promise<void> {
+    await this.writeBytes(bytes);
+  }
+
   private async exchangeInner(command: number, payload: Uint8Array, timeoutMs: number): Promise<GaiaPacket> {
     if (!this.connected || !this.characteristic) throw new Error('not connected');
 
