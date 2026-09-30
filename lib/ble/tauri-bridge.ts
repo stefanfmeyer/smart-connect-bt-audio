@@ -14,7 +14,8 @@ export interface GaiaDevice {
 
 export interface TauriHandlers {
   onData: (bytes: Uint8Array) => void;
-  onClose: () => void;
+  /** Fired when the backend reports the channel closed; payload = reason (may be null). */
+  onClose: (reason: string | null) => void;
 }
 
 export interface TauriSession {
@@ -44,12 +45,12 @@ export async function tauriConnect(deviceId: string, handlers: TauriHandlers): P
   const unRx = await listen<number[]>('gaia-rx', (e) => {
     if (sessionActive && Array.isArray(e.payload)) handlers.onData(new Uint8Array(e.payload));
   });
-  const unClose = await listen('gaia-closed', () => {
+  const unClose = await listen<string | null>('gaia-closed', (e) => {
     if (!sessionActive) return;
     sessionActive = false;
     unRx();
     unClose();
-    handlers.onClose();
+    handlers.onClose((e.payload as string | null) ?? null);
   });
 
   try {
@@ -57,7 +58,13 @@ export async function tauriConnect(deviceId: string, handlers: TauriHandlers): P
     return {
       deviceName: deviceName || 'headphones',
       write: async (bytes: Uint8Array) => {
-        await invoke('gaia_write', { bytes: Array.from(bytes) });
+        // Bounded: a deadlocked backend write must not hang the UI forever.
+        await Promise.race([
+          invoke('gaia_write', { bytes: Array.from(bytes) }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('gaia_write timed out after 3s (backend busy or blocked)')), 3000),
+          ),
+        ]);
       },
       close: () => {
         if (!sessionActive) return;

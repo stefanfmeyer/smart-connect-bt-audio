@@ -132,15 +132,20 @@ fn reader_loop(
 ) {
     use windows::Storage::Streams::{DataReader, InputStreamOptions};
     let SendWrapper(input) = input;
+    let cancelled = || cancel.load(std::sync::atomic::Ordering::Relaxed);
     let reader = match DataReader::CreateDataReader(&input) {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) => {
+            let _ = app.emit("gaia-closed", format!("reader setup failed: {e}"));
+            return;
+        }
     };
     let _ = reader.SetInputStreamOptions(InputStreamOptions::Partial);
     let mut buf = [0u8; 1024];
     loop {
-        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-            break;
+        // Deliberate disconnect: cancel set -> exit silently.
+        if cancelled() {
+            return;
         }
         let n = match reader
             .LoadAsync(buf.len() as u32)
@@ -148,17 +153,24 @@ fn reader_loop(
             .and_then(|op| op.get().map_err(|e| e.to_string()))
         {
             Ok(n) => n as usize,
-            Err(_) => break,
+            Err(e) => {
+                let _ = app.emit("gaia-closed", format!("read failed: {e}"));
+                return;
+            }
         };
         if n == 0 {
-            break;
+            let _ = app.emit(
+                "gaia-closed",
+                "stream ended (device closed the channel)".to_string(),
+            );
+            return;
         }
-        if reader.ReadBytes(&mut buf[..n]).is_err() {
-            break;
+        if let Err(e) = reader.ReadBytes(&mut buf[..n]) {
+            let _ = app.emit("gaia-closed", format!("read failed: {e}"));
+            return;
         }
         let _ = app.emit("gaia-rx", buf[..n].to_vec());
     }
-    let _ = app.emit("gaia-closed", ());
 }
 
 pub fn write(conn: &Connection, bytes: &[u8]) -> Result<(), String> {

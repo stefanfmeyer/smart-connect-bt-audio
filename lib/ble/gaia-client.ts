@@ -71,6 +71,18 @@ export class GaiaClient {
     this.onDisconnected?.();
   }
 
+  /** Restart the wire state under a different framing (probe fallback). */
+  retryWithFraming(framing: Framing): void {
+    this.framing = framing;
+    this.sequence = 0;
+    this.decodeState = newDecodeState();
+  }
+
+  /** Adopt the (probed) framing as the active one. */
+  setActiveFraming(framing: Framing): void {
+    this.framing = framing;
+  }
+
   /** RX bytes from the transport; public so the transport module can feed us. */
   ingestTransportBytes(bytes: Uint8Array): void {
     this.ingest(bytes);
