@@ -1,0 +1,147 @@
+name: Release desktop app
+
+# Creates a GitHub Release with the Windows installers whenever a vX.Y.Z tag is
+# pushed. The tag MUST match the version in src-tauri/tauri.conf.json — bump it
+# with `node scripts/bump-version.mjs <version>` first.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check tag matches app version
+        shell: pwsh
+        run: |
+          $ref = "${{ github.ref_name }}"
+          if ($ref -like "v*") {
+            $tag = $ref -replace '^v',''
+            $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+            if ($conf.version -ne $tag) {
+              "::error::Tag $ref does not match app version $($conf.version). Run: node scripts/bump-version.mjs $tag, commit, delete and re-create the tag."
+              exit 1
+            }
+            Write-Output "Version OK: tag $ref == app version $($conf.version)"
+          } else {
+            Write-Output "Manual run (no v* tag) - version check skipped."
+          }
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend (static export)
+        run: npm run build:export
+
+      - name: Build Tauri app (Windows)
+        shell: pwsh
+        run: |
+          npx tauri build --target x86_64-pc-windows-msvc 2>&1 | Tee-Object -FilePath tauri-build.log | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content tauri-build.log -Tail 250 | ForEach-Object {
+              "::error::$_"
+              Add-Content $env:GITHUB_STEP_SUMMARY $_
+            }
+            exit 1
+          }
+
+      - name: Write release notes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $exe = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "NSIS installer not found after build" }
+          $files = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe","src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi"
+          $checksums = ($files | ForEach-Object { "{0}  {1}" -f (Get-FileHash -Algorithm SHA256 $_.FullName).Hash, $_.Name }) -join "`n"
+          $fence = [string][char]0x60 * 3
+          $inline = [string][char]0x60
+          $notes = @"
+          # Smart Connect v$($conf.version)
+
+          Unofficial desktop control for Sennheiser headphones: noise cancelling
+          (Off / ANC / Adaptive / Transparency + level), equalizer, bass boost,
+          sound modes, battery and local profiles - over Bluetooth Classic RFCOMM
+          (the same GAIA control channel the official app uses).
+
+          ## Download (Windows x64)
+
+          | File | Use |
+          | ---- | --- |
+          | $inline$($exe.Name)$inline | **Recommended** - standard NSIS installer |
+
+          ## Install
+
+          1. Download and run the installer. Windows SmartScreen may warn about an
+             unsigned binary - choose "More info" > "Run anyway".
+          2. Pair your headphones in **Windows Bluetooth settings** (if not already).
+          3. Close the official Sennheiser Smart Control app - both fight over the
+             same control socket.
+          4. Keep the headphones out of the case, launch Smart Connect, click **Connect**.
+
+          First connection triggers a Windows consent prompt for the RFCOMM service.
+
+          ## Verify the download
+
+          SHA-256 checksums:
+
+          $fence
+          $checksums
+          $fence
+
+          ## Legal
+
+          This app is independent and is not affiliated with, authorized by,
+          endorsed by, or supported by Sennheiser or Sonova. Provided without
+          warranty under the MIT License.
+          "@
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref_name, 'v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Smart Connect ${{ github.ref_name }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+
+      - name: Upload build artifact (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-connect-windows-x64-release
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+          if-no-files-found: error
