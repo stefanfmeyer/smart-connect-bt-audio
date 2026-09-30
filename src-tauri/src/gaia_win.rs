@@ -20,7 +20,16 @@
 use super::GaiaDevice;
 use tauri::{AppHandle, Emitter};
 
-pub const GAIA_SDP_UUID: &str = "a2129ff3-081b-4c45-8afe-469d9c4842ec";
+/// Transparent Send wrapper for WinRT stream objects.
+///
+/// WinRT interface wrappers are `!Send` because COM objects have thread
+/// affinity in general. The StreamSocket input/output streams we use here are
+/// free-threaded (agile), and each object is confined to a single owner: the
+/// input stream is handed to exactly one reader thread; the DataWriter lives
+/// behind a Mutex and is only touched from invoke commands. The wrapper is
+/// therefore safe.
+struct SendWrapper<T>(T);
+unsafe impl<T> Send for SendWrapper<T> {}
 
 pub struct Connection {
     /// Arc-shared writer; taken and dropped on disconnect.
@@ -37,10 +46,10 @@ pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
     use windows::Devices::Bluetooth::Rfcomm::RfcommDeviceService;
     use windows::Devices::Enumeration::DeviceInformation;
 
-    // All cached RFCOMM service instances on paired devices. The WinRT surface
-    // has no service-id-specific cached-instances selector, so enumerate
-    // broadly and filter by UUID client-side.
-    let selector = RfcommDeviceService::GetDeviceSelector().map_err(|e| format!("selector failed: {e}"))?;
+    // Service-filtered AQS selector: only RFCOMM instances of the GAIA SDP id.
+    let service_id = windows::Devices::Bluetooth::Rfcomm::RfcommServiceId::FromUuid(gaia_guid())
+        .map_err(|e| format!("service id failed: {e}"))?;
+    let selector = RfcommDeviceService::GetDeviceSelector(&service_id).map_err(|e| format!("selector failed: {e}"))?;
     let results_op = DeviceInformation::FindAllAsyncAqsFilter(&windows::core::HSTRING::from(selector))
         .map_err(|e| format!("enumeration failed: {e}"))?;
     let results = results_op.get().map_err(|e| format!("enumeration failed: {e}"))?;
@@ -51,25 +60,18 @@ pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
         let info = results.GetAt(i).map_err(|e| e.to_string())?;
         let id = info.Id().map(|n| n.to_string()).unwrap_or_default();
 
-        // Describe the instance; keep only GAIA (matched by SDP UUID).
-        let describe = (|| -> Result<Option<String>, String> {
+        // Already filtered by the selector; resolve the parent device name.
+        let describe = (|| -> Result<String, String> {
             let service_op = RfcommDeviceService::FromIdAsync(&windows::core::HSTRING::from(&id)).map_err(|e| e.to_string())?;
             let service = service_op.get().map_err(|e| e.to_string())?;
-            let sid = service.ServiceId().map_err(|e| e.to_string())?;
-            let uuid = sid.Uuid().map_err(|e| e.to_string())?;
-            if uuid != gaia_guid() {
-                return Ok(None);
-            }
-            let name = service
+            Ok(service
                 .Device()
                 .and_then(|d| d.Name())
                 .map(|n| n.to_string())
-                .unwrap_or_default();
-            Ok(Some(name))
+                .unwrap_or_default())
         })();
         match describe {
-            Ok(Some(name)) => out.push(GaiaDevice { id, name }),
-            Ok(None) => continue,
+            Ok(name) => out.push(GaiaDevice { id, name }),
             Err(_) => continue, // inaccessible instance (consent revoked etc.)
         }
     }
@@ -92,7 +94,9 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
         .unwrap_or_else(|_| fallback_name.to_string());
 
     let host_name = service.ConnectionHostName().map_err(|e| format!("host name failed: {e}"))?;
-    let service_name = service.ServiceName().map_err(|e| format!("service name failed: {e}"))?;
+    let service_name = service
+        .ConnectionServiceName()
+        .map_err(|e| format!("service name failed: {e}"))?;
 
     let socket = StreamSocket::new().map_err(|e| e.to_string())?;
     socket
@@ -112,38 +116,49 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
 
     // Reader thread: blocking reads are fine off the UI thread.
     {
-        let input = socket.InputStream().map_err(|e| e.to_string())?;
+        let input = SendWrapper(socket.InputStream().map_err(|e| e.to_string())?);
         let app = app.clone();
         let cancel = cancel.clone();
-        std::thread::spawn(move || {
-            use windows::Storage::Streams::{DataReader, InputStreamOptions};
-            let reader = match DataReader::CreateDataReader(&input) {
-                Ok(r) => r,
-                Err(_) => return,
-            };
-            let _ = reader.SetInputStreamOptions(InputStreamOptions::Partial);
-            let mut buf = [0u8; 1024];
-            loop {
-                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    break;
-                }
-                let n = match reader.LoadAsync(buf.len() as u32).get() {
-                    Ok(n) => n as usize,
-                    Err(_) => break,
-                };
-                if n == 0 {
-                    break;
-                }
-                if reader.ReadBytes(&mut buf[..n]).is_err() {
-                    break;
-                }
-                let _ = app.emit("gaia-rx", buf[..n].to_vec());
-            }
-            let _ = app.emit("gaia-closed", ());
-        });
+        std::thread::spawn(move || reader_loop(app, cancel, input));
     }
 
     Ok((device_name, Connection { writer, cancel }))
+}
+
+fn reader_loop(
+    app: AppHandle,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    input: SendWrapper<windows::Storage::Streams::IInputStream>,
+) {
+    use windows::Storage::Streams::{DataReader, InputStreamOptions};
+    let SendWrapper(input) = input;
+    let reader = match DataReader::CreateDataReader(&input) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let _ = reader.SetInputStreamOptions(InputStreamOptions::Partial);
+    let mut buf = [0u8; 1024];
+    loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        let n = match reader
+            .LoadAsync(buf.len() as u32)
+            .map_err(|e| e.to_string())
+            .and_then(|op| op.get().map_err(|e| e.to_string()))
+        {
+            Ok(n) => n as usize,
+            Err(_) => break,
+        };
+        if n == 0 {
+            break;
+        }
+        if reader.ReadBytes(&mut buf[..n]).is_err() {
+            break;
+        }
+        let _ = app.emit("gaia-rx", buf[..n].to_vec());
+    }
+    let _ = app.emit("gaia-closed", ());
 }
 
 pub fn write(conn: &Connection, bytes: &[u8]) -> Result<(), String> {
