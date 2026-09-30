@@ -159,11 +159,20 @@ export function useHeadphones() {
       // The GAIA protocol layer is identical; only the byte pipe differs.
       if (isTauri()) {
         try {
-          const session = await connectTauri((text) => {
+          const { client, session } = await connectTauri((text) => {
             const isTx = text.startsWith('TX ');
             const isRx = text.startsWith('RX ');
             log(isTx ? 'tx' : isRx ? 'rx' : 'info', text);
           });
+          client.onNotification = (packet) => applyPacket(packet);
+          client.onDisconnected = () => {
+            tauriSessionRef.current = null;
+            setStatus('disconnected');
+            setDeviceName(null);
+            setFraming(null);
+            log('err', 'disconnected');
+          };
+          clientRef.current = client;
           tauriSessionRef.current = session;
           setDeviceName(session.deviceName);
           setFraming(session.framing);

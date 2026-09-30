@@ -10,6 +10,7 @@
 
 import { decodePacket, encodePacket, GaiaPacket, hex, isErrorResponse, packetType, responseFor, VENDOR_ID } from './gaia';
 import { decodeStream, framePacket, GAIA_DATA_V1, GAIA_DATA_V3_V2, GAIA_SERVICE_UUID, KNOWN_SERVICE_UUIDS, Framing, newDecodeState } from './gaia-framing';
+import type { TransportSession } from './transport';
 
 export type LogSink = (line: string) => void;
 
@@ -28,18 +29,51 @@ export class GaiaClient {
   } | null = null;
   private notificationHandler: ((e: Event) => void) | null = null;
 
+  // Desktop (Tauri RFCOMM) transport. When set, all writes route through it,
+  // RX bytes arrive via ingest(), and the Web Bluetooth fields stay unused.
+  private transport: TransportSession | null = null;
+  private transportOpen = false;
+
   constructor(private log: LogSink) {}
 
   get connected(): boolean {
+    if (this.transport) return this.transportOpen;
     return this.device?.gatt?.connected ?? false;
   }
 
   get deviceName(): string {
+    if (this.transport) return this.transport.deviceName;
     return this.device?.name ?? 'headphones';
   }
 
   get activeFraming(): Framing {
     return this.framing;
+  }
+
+  /**
+   * Attach a non-BLE transport (desktop RFCOMM). After this, the client is
+   * "connected": exchanges frame + write via the transport, responses arrive
+   * through ingest() from the transport's RX hook.
+   */
+  attachTransport(session: TransportSession): void {
+    this.transport = session;
+    this.transportOpen = true;
+    this.framing = session.framing;
+    this.sequence = 0;
+    this.decodeState = newDecodeState();
+  }
+
+  /** Transport dropped the link (unexpected close, not a local disconnect()). */
+  handleTransportClosed(): void {
+    if (!this.transportOpen) return;
+    this.transportOpen = false;
+    this.cleanupAfterDisconnect();
+    this.onDisconnected?.();
+  }
+
+  /** RX bytes from the transport; public so the transport module can feed us. */
+  ingestTransportBytes(bytes: Uint8Array): void {
+    this.ingest(bytes);
   }
 
   async connect(options?: { showAllDevices?: boolean }): Promise<string> {
@@ -212,6 +246,14 @@ export class GaiaClient {
   onDisconnected: (() => void) | null = null;
 
   disconnect(): void {
+    if (this.transport) {
+      this.transportOpen = false;
+      const session = this.transport;
+      this.transport = null;
+      session.close();
+      this.cleanupAfterDisconnect();
+      return;
+    }
     this.device?.gatt?.disconnect();
     this.cleanupAfterDisconnect();
   }
@@ -240,6 +282,11 @@ export class GaiaClient {
   }
 
   private async writeBytes(bytes: Uint8Array): Promise<void> {
+    if (this.transport) {
+      if (!this.transportOpen) throw new Error('not connected');
+      await this.transport.write(bytes);
+      return;
+    }
     if (!this.characteristic) throw new Error('not connected');
     const copy = new Uint8Array(bytes.length);
     copy.set(bytes);
@@ -257,7 +304,7 @@ export class GaiaClient {
   }
 
   private async exchangeInner(command: number, payload: Uint8Array, timeoutMs: number): Promise<GaiaPacket> {
-    if (!this.connected || !this.characteristic) throw new Error('not connected');
+    if (!this.connected || (!this.transport && !this.characteristic)) throw new Error('not connected');
 
     const packet: GaiaPacket = { vendorId: VENDOR_ID, command, payload };
     const framed = framePacket(packet, this.framing, this.sequence++ & 0xff);
@@ -266,7 +313,7 @@ export class GaiaClient {
     const expected = responseFor(command);
     const promise = new Promise<GaiaPacket>((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (this.pending?.command === command) {
+        if (this.pending?.command === expected) {
           this.pending = null;
           reject(new Error(`timeout waiting for response 0x${expected.toString(16).padStart(4, '0')}`));
         }
@@ -281,7 +328,7 @@ export class GaiaClient {
 
   /** Fire a notification-registration style command without awaiting a response id. */
   async writeOnly(command: number, payload: Uint8Array = new Uint8Array(0)): Promise<void> {
-    if (!this.characteristic) throw new Error('not connected');
+    if (!this.transport && !this.characteristic) throw new Error('not connected');
     const packet: GaiaPacket = { vendorId: VENDOR_ID, command, payload };
     const framed = framePacket(packet, this.framing, this.sequence++ & 0xff);
     this.log(`TX ${hex(framed.bytes)}`);
@@ -302,7 +349,10 @@ export class GaiaClient {
 
       if (type === 'response' || type === 'error') {
         const pending = this.pending;
-        if (pending && pending.command === packet.command) {
+        // pending.command holds the expected RESPONSE id; an error arrives as
+        // response|0x0080, so mask the status bit before comparing.
+        const wireId = packet.command & ~0x0080 & 0xffff;
+        if (pending && pending.command === wireId) {
           clearTimeout(pending.timer);
           this.pending = null;
           if (isErrorResponse(packet.command)) {

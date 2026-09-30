@@ -50,11 +50,13 @@ export async function connectWebBluetooth(log: (line: string) => void, showAllDe
 }
 
 /**
- * Connect via the Tauri Rust backend over Bluetooth Classic RFCOMM.
- * All endpoint/framing probing is skipped: this transport is the one the
- * reference implementations use, with framing 'spp-style'.
+ * Connect via the Tauri Rust backend over Bluetooth Classic RFCOMM and return
+ * a GaiaClient with the transport attached: the caller uses the client exactly
+ * like the Web Bluetooth one (exchange(), notifications, protocol log). All
+ * endpoint/framing probing is skipped: this transport is the one the reference
+ * implementations use, with framing 'spp-style'.
  */
-export async function connectTauri(log: (line: string) => void, deviceId?: string): Promise<TransportSession> {
+export async function connectTauri(log: (line: string) => void, deviceId?: string): Promise<{ client: GaiaClient; session: TransportSession }> {
   const devices = await listGaiaDevices();
   log(`desktop backend: ${devices.length} paired GAIA device(s) found`);
   if (devices.length === 0) {
@@ -66,31 +68,42 @@ export async function connectTauri(log: (line: string) => void, deviceId?: strin
   const target = (deviceId && devices.find((d) => d.id === deviceId)) || devices[0];
   log(`connecting RFCOMM GAIA channel to "${target.name}"...`);
 
-  let frameBuffer: number[] = [];
+  const client = new GaiaClient(log);
+
+  // RX can race ahead of the socket handshake resolving; buffer until the
+  // client is attached, then drain in order.
+  let early: Uint8Array[] = [];
+  let closedEarly = false;
+  let rxSink: ((bytes: Uint8Array) => void) | null = null;
+  let closeSink: (() => void) | null = null;
+
   const session = await tauriConnect(target.id, {
     onData: (bytes) => {
-      // Forward raw bytes to the onRx hook (set below once resolved).
-      if (session2.onRx) {
-        session2.onRx(bytes);
-      } else {
-        frameBuffer = frameBuffer.concat(Array.from(bytes));
-      }
+      if (rxSink) rxSink(bytes);
+      else early.push(bytes);
     },
-    onClose: () => session2.onClose?.(),
+    onClose: () => {
+      if (closeSink) closeSink();
+      else closedEarly = true;
+    },
   });
 
-  const session2: TransportSession & { onRx: ((bytes: Uint8Array) => void) | null; onClose: (() => void) | null } = {
+  const transport: TransportSession = {
     framing: 'spp-style',
-    deviceName: session.deviceName ?? target.name,
-    write: async (bytes) => {
-      await session.write(bytes);
-    },
+    deviceName: session.deviceName || target.name,
+    write: (bytes) => session.write(bytes),
     close: () => session.close(),
-    onRx: null,
-    onClose: null,
   };
+  client.attachTransport(transport);
 
-  void frameBuffer;
-  log(`RFCOMM channel open to "${session2.deviceName}"`);
-  return session2;
+  rxSink = (bytes) => client.ingestTransportBytes(bytes);
+  closeSink = () => client.handleTransportClosed();
+
+  const buffered = early;
+  early = [];
+  for (const bytes of buffered) client.ingestTransportBytes(bytes);
+  if (closedEarly) closeSink();
+
+  log(`RFCOMM channel open to "${transport.deviceName}"`);
+  return { client, session: transport };
 }
