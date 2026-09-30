@@ -122,6 +122,13 @@ jobs:
           "@
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
 
+      - name: Upload alias-named installer (stable download URL)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          Copy-Item $exe.FullName "Smart.Connect_x64-setup.exe"
+          Write-Output "Copied $($exe.Name) -> Smart.Connect_x64-setup.exe"
+
       - name: Create GitHub Release
         if: startsWith(github.ref_name, 'v')
         uses: softprops/action-gh-release@v2
@@ -135,6 +142,7 @@ jobs:
           files: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+            Smart.Connect_x64-setup.exe
 
       - name: Upload build artifact (always)
         if: always()

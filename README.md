@@ -27,7 +27,9 @@ Longship theme. Primary/verified hardware: **MOMENTUM 4 Wireless**.
 
 1. Grab the latest installer from **[Releases](https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/latest)**
    — `Smart Connect_<version>_x64-setup.exe` (NSIS). A `.msi` is also attached, and every
-   release includes SHA-256 checksums in the notes.
+   release includes SHA-256 checksums in the notes. Permanent "latest" link (always the newest
+   installer, no matter the version):
+   [Download Smart Connect for Windows](https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/latest/download/Smart.Connect_x64-setup.exe).
 2. Run the installer. Windows SmartScreen may warn about an unsigned binary —
    *More info* → *Run anyway*.
 3. Pair your headphones in **Windows Bluetooth settings** (if not already done).
@@ -90,7 +92,9 @@ every push to `main` (artifact `smart-connect-windows-x64`), `release.yml` on `v
 ## Web app (secondary)
 
 A browser-only variant lives in the same repo and is deployed at
-**https://smart-connect-bt-audio.vercel.app/**. Browsers only expose BLE GATT (Web Bluetooth),
+**https://smart-connect-bt-audio.vercel.app/** — the root is a marketing/download page, the
+control UI lives at [/app](https://smart-connect-bt-audio.vercel.app/app). Browsers only expose
+BLE GATT (Web Bluetooth),
 and the MOMENTUM 4 control channel (verified by hardware probe against the `fcfe` companion
 service) runs over Bluetooth Classic RFCOMM only — so the web app cannot fully control the M4.
 It remains useful for models that expose GAIA over BLE (matched by name) and for battery reads.

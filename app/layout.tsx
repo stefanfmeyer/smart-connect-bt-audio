@@ -18,7 +18,7 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: 'Smart Connect for Sennheiser',
   description:
-    'Unofficial web control for Sennheiser headphones over Web Bluetooth: noise control, EQ and profiles. Not affiliated with Sennheiser or Sonova.',
+    'Free Windows desktop app to control Sennheiser headphones over Bluetooth: noise cancelling, EQ, sound modes, battery and profiles. Not affiliated with Sennheiser or Sonova.',
 };
 
 export const viewport: Viewport = {
