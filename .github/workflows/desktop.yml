@@ -28,24 +28,20 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Rust check (verbose tail on failure)
-        shell: pwsh
-        run: |
-          cd src-tauri
-          cargo check --target x86_64-pc-windows-msvc 2>&1 | Tee-Object -FilePath cargo-check.log | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            Get-Content cargo-check.log -Tail 200 | ForEach-Object { Add-Content $env:GITHUB_STEP_SUMMARY $_ }
-            exit 1
-          }
+      - name: Build frontend (static export)
+        run: npm run build:export
 
       - name: Build Tauri app (Windows)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: .
-          tauriScript: npx tauri
-          args: --target x86_64-pc-windows-msvc
+        shell: pwsh
+        run: |
+          npx tauri build --target x86_64-pc-windows-msvc 2>&1 | Tee-Object -FilePath tauri-build.log | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content tauri-build.log -Tail 250 | ForEach-Object {
+              "::error::$_"
+              Add-Content $env:GITHUB_STEP_SUMMARY $_
+            }
+            exit 1
+          }
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
