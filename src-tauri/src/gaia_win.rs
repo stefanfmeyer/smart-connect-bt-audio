@@ -121,7 +121,7 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
                 Ok(r) => r,
                 Err(_) => return,
             };
-            let _ = reader.InputStreamOptions(InputStreamOptions::Partial);
+            let _ = reader.SetInputStreamOptions(InputStreamOptions::Partial);
             let mut buf = [0u8; 1024];
             loop {
                 if cancel.load(std::sync::atomic::Ordering::Relaxed) {
