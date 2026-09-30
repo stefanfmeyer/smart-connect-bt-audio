@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.2"
+version = "0.1.3"
 description = "Unofficial desktop control for Sennheiser headphones (GAIA over Bluetooth Classic RFCOMM): noise control, EQ and profiles."
 authors = ["Stefan Meyer"]
 license = "MIT"

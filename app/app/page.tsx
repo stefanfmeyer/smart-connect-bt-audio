@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@/lib/ble/tauri-bridge';
+import { APP_VERSION } from '@/lib/version';
 import { currentNoiseMode, NoiseMode, ProtocolLine, useHeadphones } from '@/lib/ble/use-headphones';
 import { HeadphoneProfile, loadProfiles, profileFromSnapshot, saveProfiles } from '@/lib/profiles';
 import { SOUND_MODE, SOUND_MODE_NAMES } from '@/lib/ble/sennheiser';
@@ -115,7 +116,9 @@ export default function Home() {
   return (
     <div className="app-root">
       <header className="app-header">
-        <div className="app-logo">Smart Connect for Sennheiser</div>
+        <div className="app-logo">
+          Smart Connect for Sennheiser <span className="version-pill">v{APP_VERSION}</span>
+        </div>
         <div className="app-header-right">
           {!onDesk && (
             <a

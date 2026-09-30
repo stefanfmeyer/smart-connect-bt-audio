@@ -9,6 +9,7 @@ import { GaiaClient } from './gaia-client';
 import { GaiaPacket, hex } from './gaia';
 import { isTauri } from './tauri-bridge';
 import { connectTauri, TransportSession } from './transport';
+import { APP_VERSION } from '../version';
 import {
   AncModes,
   audioModePayload,
@@ -154,6 +155,7 @@ export function useHeadphones() {
       setError(null);
       setStatus('connecting');
       protocolRef.current = [];
+      log('info', `Smart Connect v${APP_VERSION} — ${isTauri() ? 'desktop (Bluetooth Classic RFCOMM)' : 'browser (Web Bluetooth)'}`);
 
       // Desktop (Tauri): Bluetooth Classic RFCOMM via the Rust backend.
       // The GAIA protocol layer is identical; only the byte pipe differs.
@@ -235,7 +237,7 @@ export function useHeadphones() {
       setError(null);
       try {
         await fn(client);
-        await readSnapshotInto(client, setSnapshot);
+        await readSnapshotInto(client, setSnapshot, log);
       } catch (e) {
         setError(describeError(e));
         log('err', `operation failed: ${(e as Error).message}`);
@@ -252,7 +254,7 @@ export function useHeadphones() {
     if (!client || !client.connected) return;
     setBusy(true);
     try {
-      await readSnapshotInto(client, setSnapshot);
+      await readSnapshotInto(client, setSnapshot, log);
     } catch (e) {
       setError(describeError(e));
     } finally {
@@ -387,42 +389,76 @@ export function useHeadphones() {
 
 // ---------------------------------------------------------------------------
 
-async function readSnapshotInto(client: GaiaClient, set: (fn: (prev: Snapshot) => Snapshot) => void): Promise<void> {
+async function readSnapshotInto(
+  client: GaiaClient,
+  set: (fn: (prev: Snapshot) => Snapshot) => void,
+  log?: (dir: ProtocolLine['dir'], text: string) => void,
+): Promise<void> {
   const next: Partial<Snapshot> = {};
 
-  const battery = await exchangeMaybeN(client, CMD.getBattery, batteryQuery(), parseBattery);
+  const readNum = async (label: string, command: number, payload: Uint8Array, parse: (p: Uint8Array) => ParseResult<number>) => {
+    try {
+      const v = await exchangeMaybeN(client, command, payload, parse);
+      if (v === null) log?.('info', `   read ${label}: device gave no usable answer`);
+      return v;
+    } catch (e) {
+      log?.('err', `   read ${label} failed: ${(e as Error).message}`);
+      return null;
+    }
+  };
+  const readBool = async (label: string, command: number) => {
+    try {
+      const v = await exchangeMaybeB(client, command, new Uint8Array(0));
+      if (v === null) log?.('info', `   read ${label}: device gave no usable answer`);
+      return v;
+    } catch (e) {
+      log?.('err', `   read ${label} failed: ${(e as Error).message}`);
+      return null;
+    }
+  };
+  const readJson = async <T,>(label: string, command: number, parse: (p: Uint8Array) => ParseResult<T>) => {
+    try {
+      const v = await exchangeMaybeJson(client, command, new Uint8Array(0), parse);
+      if (!v) log?.('info', `   read ${label}: device gave no usable answer`);
+      return v;
+    } catch (e) {
+      log?.('err', `   read ${label} failed: ${(e as Error).message}`);
+      return null;
+    }
+  };
+
+  const battery = await readNum('battery', CMD.getBattery, batteryQuery(), parseBattery);
   if (battery !== null) next.battery = battery;
 
-  const ancEnabled = await exchangeMaybeB(client, CMD.getAncEnabled, new Uint8Array(0));
+  const ancEnabled = await readBool('ancEnabled', CMD.getAncEnabled);
   if (ancEnabled !== null) next.ancEnabled = ancEnabled;
 
-  const modes = await exchangeMaybeJson(client, CMD.getAncModes, new Uint8Array(0), parseAncModes);
+  const modes = await readJson('ancModes', CMD.getAncModes, parseAncModes);
   if (modes) next.ancModes = modes;
 
-  const level = await exchangeMaybeN(client, CMD.getTransparencyLevel, new Uint8Array(0), parseLevel100);
+  const level = await readNum('transparencyLevel', CMD.getTransparencyLevel, new Uint8Array(0), parseLevel100);
   if (level !== null) next.transparencyLevel = level;
 
-  const th = await exchangeMaybeB(client, CMD.getTransparentHearing, new Uint8Array(0));
+  const th = await readBool('transparentHearing', CMD.getTransparentHearing);
   if (th !== null) next.transparentHearing = th;
 
-  const soundMode = await exchangeMaybeN(client, CMD.getSoundMode, new Uint8Array(0), parseSoundMode);
+  const soundMode = await readNum('soundMode', CMD.getSoundMode, new Uint8Array(0), parseSoundMode);
   if (soundMode !== null) next.soundMode = soundMode;
 
-  const compat = await exchangeMaybeN(client, CMD.getBtCompatMode, new Uint8Array(0), parseBtCompatMode);
-  void compat; // read for the protocol log; surfaced via console
+  await readNum('btCompatMode', CMD.getBtCompatMode, new Uint8Array(0), parseBtCompatMode); // read for the protocol log
 
-  const eqConfig = await exchangeMaybeJson(client, CMD.getEqConfig, new Uint8Array(0), parseEqConfig);
+  const eqConfig = await readJson('eqConfig', CMD.getEqConfig, parseEqConfig);
   if (eqConfig) {
     next.eqConfig = eqConfig;
     const bands: number[] = [];
     for (let band = 0; band < eqConfig.bandCount; band++) {
-      const gain = await exchangeMaybeN(client, CMD.getEqBand, eqBandQuery(band), (p) => parseEqBand(p, band));
+      const gain = await readNum(`eqBand${band}`, CMD.getEqBand, eqBandQuery(band), (p) => parseEqBand(p, band));
       bands.push(gain ?? 0);
     }
     next.eqBands = bands;
   }
 
-  const bass = await exchangeMaybeB(client, CMD.getBassBoost, new Uint8Array(0));
+  const bass = await readBool('bassBoost', CMD.getBassBoost);
   if (bass !== null) next.bassBoost = bass;
 
   set((prev) => ({ ...prev, ...next }));
