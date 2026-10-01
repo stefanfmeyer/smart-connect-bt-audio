@@ -9,6 +9,7 @@
 
 import { GaiaClient } from './gaia-client';
 import { Framing } from './gaia-framing';
+import { CMD } from './sennheiser';
 import { GaiaDevice, isTauri, listGaiaDevices, tauriConnect } from './tauri-bridge';
 
 export interface TransportDevice {
@@ -57,8 +58,9 @@ export async function connectWebBluetooth(log: (line: string) => void, showAllDe
  *    so an immediate device-side close can never be missed.
  *  - Every paired GAIA device is tried in order; Windows often keeps stale
  *    RFCOMM cache entries whose socket "connects" but carries no data.
- *  - A device only counts as connected once it ANSWERS a GAIA battery query
+ *  - A device only counts as connected once it ANSWERS a known GAIA query
  *    on spp-style framing (fallback: gatt-v3). "Socket open" is not enough.
+ *    The gate accepts ANC/transparency/bass/battery answers — see connectOne.
  */
 export async function connectTauri(log: (line: string) => void, deviceId?: string): Promise<{ client: GaiaClient; session: TransportSession }> {
   const devices = await listGaiaDevices();
@@ -138,16 +140,22 @@ async function connectOne(target: GaiaDevice, log: (line: string) => void): Prom
   }
 
   // GAIA probe: the device must ANSWER before we claim "connected".
+  // The gate accepts ANY known-good Sennheiser query — probing battery only
+  // deadlocked the MOMENTUM 4, which silently ignores that command (f3Y0's
+  // proven M4 client validates its channel with the ANC get instead).
+  const gateCommands = [CMD.getAncEnabled, CMD.getTransparencyLevel, CMD.getBassBoost, CMD.getBattery];
   try {
-    await client.exchange(0x0603, new Uint8Array(0), 3500); // battery query
-    log(`GAIA probe answered on "${transport.deviceName}" (spp-style)`);
+    const answered = await client.tryCommands(gateCommands);
+    if (answered === null) throw new Error('device answered none of the known GAIA queries');
+    log(`GAIA probe answered on "${transport.deviceName}" (spp-style, 0x${answered.toString(16).padStart(4, '0')})`);
   } catch (e) {
     const first = (e as Error).message;
     log(`no spp-style answer (${first}); trying gatt-v3 framing...`);
     client.retryWithFraming('gatt-v3');
     try {
-      await client.exchange(0x0603, new Uint8Array(0), 3500);
-      log(`GAIA probe answered on "${transport.deviceName}" (gatt-v3)`);
+      const answered = await client.tryCommands(gateCommands);
+      if (answered === null) throw new Error('device answered none of the known GAIA queries');
+      log(`GAIA probe answered on "${transport.deviceName}" (gatt-v3, 0x${answered.toString(16).padStart(4, '0')})`);
       (transport as { framing: Framing }).framing = 'gatt-v3';
       client.setActiveFraming('gatt-v3');
     } catch (e2) {

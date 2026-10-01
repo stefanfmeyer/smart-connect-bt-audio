@@ -103,6 +103,42 @@ async function main() {
   check('protocol log contains TX line', lines.some((l) => l.toLowerCase().startsWith('tx ff 03')));
   check('protocol log contains RX line', lines.some((l) => l.toLowerCase().startsWith('rx ff 03')));
 
+  // --- 6. tryCommands gate: battery-ignoring device (MOMENTUM 4 profile) -----
+  {
+    const client2 = new GaiaClient(() => undefined);
+    client2.attachTransport({
+      framing: 'spp-style',
+      deviceName: 'mute-for-battery (simulated)',
+      write: async (bytes) => {
+        // Answer ONLY the ANC get (0x1A05 -> 0x1B05); ignore everything else.
+        const hexed = hex(bytes).toLowerCase().replace(/ /g, '');
+        if (hexed.endsWith('1a05')) {
+          setTimeout(() => {
+            client2.ingestTransportBytes(
+              framePacket({ vendorId: 0x0495, command: 0x1b05, payload: new Uint8Array([1]) }, 'spp-style', 0).bytes,
+            );
+          }, 10);
+        }
+      },
+      close: () => undefined,
+    });
+    const answered = await client2.tryCommands([0x0603, 0x1a05]);
+    check('tryCommands skips ignored battery query, accepts ANC get', answered === 0x1a05, `got ${answered}`);
+  }
+
+  // --- 7. tryCommands gate: all-mute channel returns null --------------------
+  {
+    const client3 = new GaiaClient(() => undefined);
+    client3.attachTransport({
+      framing: 'spp-style',
+      deviceName: 'all-mute (simulated)',
+      write: async () => undefined,
+      close: () => undefined,
+    });
+    const answered = await client3.tryCommands([0x0603]);
+    check('tryCommands returns null when nothing is answered', answered === null, `got ${answered}`);
+  }
+
   if (failures > 0) {
     console.error(`\n${failures} check(s) FAILED`);
     process.exit(1);

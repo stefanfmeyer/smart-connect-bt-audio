@@ -98,31 +98,128 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
         .ConnectionServiceName()
         .map_err(|e| format!("service name failed: {e}"))?;
 
-    let socket = StreamSocket::new().map_err(|e| e.to_string())?;
-    socket
-        .ConnectAsync(&host_name, &service_name)
-        .map_err(|e| format!("socket connect failed: {e}"))?
-        .get()
-        .map_err(|e| {
-            format!(
-                "RFCOMM connect failed: {e}. If this persists, the official Smart Control app may be holding the control link — close it and retry."
-            )
-        })?;
+    // Candidate RFCOMM channels: the SDP-cached service name first, then the
+    // channel set proven on the MOMENTUM 4 (f3Y0/momentum4-control probes
+    // [2, 1, 15, 14, 12, ...] because the SDP/default channel can open and
+    // still never speak GAIA). Each channel must answer a GAIA query before
+    // it is accepted; mute channels are skipped automatically.
+    let mut channels: Vec<String> = vec![service_name.to_string()];
+    for ch in [2u8, 1, 15, 14, 12, 3, 4, 5, 6, 7, 8, 9, 10, 11] {
+        let c = ch.to_string();
+        if !channels.contains(&c) {
+            channels.push(c);
+        }
+    }
+
+    let mut last_err = String::new();
+    for channel in &channels {
+        let socket = StreamSocket::new().map_err(|e| e.to_string())?;
+        let connect_op = socket
+            .ConnectAsync(&host_name, &windows::core::HSTRING::from(channel))
+            .map_err(|e| format!("socket connect failed: {e}"))?;
+        // Bounded wait: a dead channel must not hang the connect (explicit
+        // Cancel + drop of the socket cancels the outstanding operation).
+        if !wait_for_status(|| connect_op.Status().map(|s| s.0), 4000) {
+            let _ = connect_op.Cancel();
+            last_err = format!("channel {channel}: connect did not complete in 4s");
+            continue;
+        }
+        if let Err(e) = connect_op.get() {
+            last_err = format!("channel {channel}: connect failed: {e}");
+            continue;
+        }
+
+        // GAIA probe: ANC get (0x1A05) — the query proven to be answered by
+        // the MOMENTUM 4 (battery is ignored by that model). Any valid GAIA
+        // reply is accepted; we only check that bytes come back.
+        match probe_channel_gaia(&socket) {
+            Ok(()) => {
+                let out = socket.OutputStream().map_err(|e| e.to_string())?;
+                let writer = DataWriter::CreateDataWriter(&out).map_err(|e| e.to_string())?;
+                let writer = std::sync::Arc::new(std::sync::Mutex::new(Some(writer)));
+                let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+                // Reader thread: blocking reads are fine off the UI thread.
+                {
+                    let input = SendWrapper(socket.InputStream().map_err(|e| e.to_string())?);
+                    let app = app.clone();
+                    let cancel = cancel.clone();
+                    std::thread::spawn(move || reader_loop(app, cancel, input));
+                }
+
+                let display = format!("{device_name} (RFCOMM ch {channel})");
+                return Ok((display, Connection { writer, cancel }));
+            }
+            Err(e) => {
+                last_err = format!("channel {channel}: GAIA probe got no answer ({e})");
+                continue;
+            }
+        }
+    }
+
+    Err(format!(
+        "RFCOMM connect failed: no candidate channel answered a GAIA command. Last attempt: {last_err}. \
+         If this persists, close the official Smart Control app (it may be holding the control link), \
+         toggle the headphones off/on, and retry."
+    ))
+}
+
+/// Probe frame: GAIA ANC get 0x1A05 (vendor 0x0495), SPP framing, no payload.
+fn probe_frame() -> [u8; 8] {
+    [0xff, 0x03, 0x00, 0x00, 0x04, 0x95, 0x1a, 0x05]
+}
+
+/// Poll an async operation's status until Completed (true) or deadline (false).
+/// Never blocks indefinitely: the caller drops the owning object to cancel.
+/// Status codes (Windows.Foundation.AsyncStatus): 0 Started, 1 Completed,
+/// 2 Canceled, 3 Error — compared raw so we need no windows-future dep.
+fn wait_for_status<F>(mut status: F, timeout_ms: u64) -> bool
+where
+    F: FnMut() -> windows::core::Result<i32>,
+{
+    let start = std::time::Instant::now();
+    loop {
+        if let Ok(code) = status() {
+            if code == 1 {
+                return true; // Completed
+            }
+            if code != 0 {
+                return false; // Canceled or Error
+            }
+        }
+        if start.elapsed().as_millis() as u64 >= timeout_ms {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(40));
+    }
+}
+
+/// Write the GAIA probe and wait briefly for any reply bytes.
+fn probe_channel_gaia(socket: &windows::Networking::Sockets::StreamSocket) -> Result<(), String> {
+    use windows::Storage::Streams::{DataReader, DataWriter, InputStreamOptions};
 
     let out = socket.OutputStream().map_err(|e| e.to_string())?;
     let writer = DataWriter::CreateDataWriter(&out).map_err(|e| e.to_string())?;
-    let writer = std::sync::Arc::new(std::sync::Mutex::new(Some(writer)));
-    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    writer.WriteBytes(&probe_frame()).map_err(|e| format!("write failed: {e}"))?;
+    writer
+        .StoreAsync()
+        .map_err(|e| e.to_string())?
+        .get()
+        .map_err(|e| format!("store failed: {e}"))?;
 
-    // Reader thread: blocking reads are fine off the UI thread.
-    {
-        let input = SendWrapper(socket.InputStream().map_err(|e| e.to_string())?);
-        let app = app.clone();
-        let cancel = cancel.clone();
-        std::thread::spawn(move || reader_loop(app, cancel, input));
+    let input = socket.InputStream().map_err(|e| e.to_string())?;
+    let reader = DataReader::CreateDataReader(&input).map_err(|e| e.to_string())?;
+    let _ = reader.SetInputStreamOptions(InputStreamOptions::Partial);
+    let load_op = reader.LoadAsync(64).map_err(|e| e.to_string())?;
+    if !wait_for_status(|| load_op.Status().map(|s| s.0), 1500) {
+        let _ = load_op.Cancel();
+        return Err("no bytes within 1.5s".into());
     }
-
-    Ok((device_name, Connection { writer, cancel }))
+    let n = load_op.get().map_err(|e| format!("read failed: {e}"))?;
+    if n == 0 {
+        return Err("stream ended immediately".into());
+    }
+    Ok(())
 }
 
 fn reader_loop(

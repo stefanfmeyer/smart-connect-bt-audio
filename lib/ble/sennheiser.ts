@@ -14,7 +14,12 @@
 import { payloadBytes, responseFor, u8 } from './gaia';
 
 export const CMD = {
-  // Device info / battery
+  // Device info / battery. NOTE (MOMENTUM 4): community RE of the M4 Classic
+  // link (f3Y0/momentum4-control; SilentSoulsSr notes) documents NO battery
+  // command, and the device silently IGNORES unknown queries like this one.
+  // The connect gate therefore no longer waits for a battery answer (see
+  // transport.ts connectOne); this read stays in the snapshot for models that
+  // do answer it.
   getBattery: 0x0603, // -> 0x0703, payload [0..100]
   // Audio mode (Off / Equalizer / Podcast / Sound Personalization)
   setAudioMode: 0x0803, // payload [mode]

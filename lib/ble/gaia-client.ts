@@ -88,6 +88,25 @@ export class GaiaClient {
     this.ingest(bytes);
   }
 
+  /**
+   * Connect-gate rescue: some devices only answer a SUBSET of GAIA commands
+   * (the MOMENTUM 4 ignores the GAIA battery query entirely — community RE of
+   * its Classic link documents no battery command at all). Fire known-good
+   * commands one at a time and return the first command id that gets
+   * answered, or null when the device stays mute on all of them.
+   */
+  async tryCommands(commands: number[]): Promise<number | null> {
+    for (const command of commands) {
+      try {
+        await this.exchange(command, new Uint8Array(0), 2500);
+        return command;
+      } catch {
+        /* try the next known-good command */
+      }
+    }
+    return null;
+  }
+
   async connect(options?: { showAllDevices?: boolean }): Promise<string> {
     if (!navigator.bluetooth) {
       throw new Error('Web Bluetooth is not available. Use Chrome/Edge on desktop over HTTPS or localhost.');
