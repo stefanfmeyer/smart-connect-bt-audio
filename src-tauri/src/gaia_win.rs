@@ -30,10 +30,26 @@ use tauri::{AppHandle, Emitter};
 /// therefore safe.
 struct SendWrapper<T>(T);
 unsafe impl<T> Send for SendWrapper<T> {}
+impl<T> std::ops::Deref for SendWrapper<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
 
 pub struct Connection {
+    /// The socket OWNS the RFCOMM streams: it must live as long as the
+    /// connection. Dropping it (as v0.1.5 accidentally did at the end of
+    /// connect()) closes the underlying channel with RO_E_CLOSED
+    /// (0x80000013) seconds after connect — the "channel closed during
+    /// handshake" failure. Kept here (never read) purely for its lifetime.
+    _socket: SendWrapper<windows::Networking::Sockets::StreamSocket>,
     /// Arc-shared writer; taken and dropped on disconnect.
-    pub writer: std::sync::Arc<std::sync::Mutex<Option<windows::Storage::Streams::DataWriter>>>,
+    writer: std::sync::Arc<std::sync::Mutex<Option<SendWrapper<windows::Storage::Streams::DataWriter>>>>,
+    /// Reader shared with the reader thread; explicitly closed on disconnect
+    /// so a blocked LoadAsync returns immediately (the thread holds another
+    /// Arc, so only Close() can release it).
+    reader: std::sync::Mutex<Option<std::sync::Arc<SendWrapper<windows::Storage::Streams::DataReader>>>>,
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -80,8 +96,8 @@ pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
 
 pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<(String, Connection), String> {
     use windows::Devices::Bluetooth::Rfcomm::RfcommDeviceService;
+    use windows::Storage::Streams::{DataReader, DataWriter, InputStreamOptions};
     use windows::Networking::Sockets::StreamSocket;
-    use windows::Storage::Streams::DataWriter;
 
     let service_op = RfcommDeviceService::FromIdAsync(&windows::core::HSTRING::from(device_id))
         .map_err(|e| format!("service resolve failed: {e}"))?;
@@ -132,29 +148,68 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
         // GAIA probe: ANC get (0x1A05) — the query proven to be answered by
         // the MOMENTUM 4 (battery is ignored by that model). Any valid GAIA
         // reply is accepted; we only check that bytes come back.
-        match probe_channel_gaia(&socket) {
-            Ok(()) => {
-                let out = socket.OutputStream().map_err(|e| e.to_string())?;
-                let writer = DataWriter::CreateDataWriter(&out).map_err(|e| e.to_string())?;
-                let writer = std::sync::Arc::new(std::sync::Mutex::new(Some(writer)));
-                let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        //
+        // The probe runs through the SAME writer/reader the session keeps.
+        // v0.1.5 used throwaway probe objects AND never kept the socket: the
+        // WinRT teardown closed the underlying stream seconds after connect()
+        // returned, surfacing as RO_E_CLOSED (0x80000013) during the frontend
+        // handshake. No throwaway objects exist anymore: on success everything
+        // moves into the Connection, on failure the candidate channel is dead
+        // anyway and dropping the locals closes it — exactly what we want.
+        let out = socket.OutputStream().map_err(|e| e.to_string())?;
+        let writer = DataWriter::CreateDataWriter(&out).map_err(|e| e.to_string())?;
+        writer
+            .WriteBytes(&probe_frame())
+            .map_err(|e| format!("write failed: {e}"))?;
+        writer
+            .StoreAsync()
+            .map_err(|e| e.to_string())?
+            .get()
+            .map_err(|e| format!("store failed: {e}"))?;
 
-                // Reader thread: blocking reads are fine off the UI thread.
-                {
-                    let input = SendWrapper(socket.InputStream().map_err(|e| e.to_string())?);
-                    let app = app.clone();
-                    let cancel = cancel.clone();
-                    std::thread::spawn(move || reader_loop(app, cancel, input));
-                }
+        let input = socket.InputStream().map_err(|e| e.to_string())?;
+        let session_reader = DataReader::CreateDataReader(&input).map_err(|e| e.to_string())?;
+        let _ = session_reader.SetInputStreamOptions(InputStreamOptions::Partial);
 
-                let display = format!("{device_name} (RFCOMM ch {channel})");
-                return Ok((display, Connection { writer, cancel }));
+        let probe_answered = {
+            let load_op = session_reader.LoadAsync(64).map_err(|e| e.to_string())?;
+            if wait_for_status(|| load_op.Status().map(|s| s.0), 1500) {
+                matches!(load_op.get(), Ok(n) if n > 0)
+            } else {
+                let _ = load_op.Cancel();
+                false
             }
-            Err(e) => {
-                last_err = format!("channel {channel}: GAIA probe got no answer ({e})");
-                continue;
-            }
+        };
+        if !probe_answered {
+            last_err = format!("channel {channel}: GAIA probe got no answer");
+            continue;
         }
+
+        let writer = std::sync::Arc::new(std::sync::Mutex::new(Some(SendWrapper(writer))));
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let reader = std::sync::Arc::new(SendWrapper(session_reader));
+
+        // Reader thread: blocking reads are fine off the UI thread. The
+        // DataReader is shared (Arc) so disconnect can Close() it to release
+        // a blocked read; the socket itself moves into the returned
+        // Connection so the channel stays open for the session's lifetime.
+        {
+            let app = app.clone();
+            let cancel = cancel.clone();
+            let thread_reader = reader.clone();
+            std::thread::spawn(move || reader_loop(app, cancel, thread_reader));
+        }
+
+        let display = format!("{device_name} (RFCOMM ch {channel})");
+        return Ok((
+            display,
+            Connection {
+                _socket: SendWrapper(socket),
+                writer,
+                reader: std::sync::Mutex::new(Some(reader)),
+                cancel,
+            },
+        ));
     }
 
     Err(format!(
@@ -194,50 +249,12 @@ where
     }
 }
 
-/// Write the GAIA probe and wait briefly for any reply bytes.
-fn probe_channel_gaia(socket: &windows::Networking::Sockets::StreamSocket) -> Result<(), String> {
-    use windows::Storage::Streams::{DataReader, DataWriter, InputStreamOptions};
-
-    let out = socket.OutputStream().map_err(|e| e.to_string())?;
-    let writer = DataWriter::CreateDataWriter(&out).map_err(|e| e.to_string())?;
-    writer.WriteBytes(&probe_frame()).map_err(|e| format!("write failed: {e}"))?;
-    writer
-        .StoreAsync()
-        .map_err(|e| e.to_string())?
-        .get()
-        .map_err(|e| format!("store failed: {e}"))?;
-
-    let input = socket.InputStream().map_err(|e| e.to_string())?;
-    let reader = DataReader::CreateDataReader(&input).map_err(|e| e.to_string())?;
-    let _ = reader.SetInputStreamOptions(InputStreamOptions::Partial);
-    let load_op = reader.LoadAsync(64).map_err(|e| e.to_string())?;
-    if !wait_for_status(|| load_op.Status().map(|s| s.0), 1500) {
-        let _ = load_op.Cancel();
-        return Err("no bytes within 1.5s".into());
-    }
-    let n = load_op.get().map_err(|e| format!("read failed: {e}"))?;
-    if n == 0 {
-        return Err("stream ended immediately".into());
-    }
-    Ok(())
-}
-
 fn reader_loop(
     app: AppHandle,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    input: SendWrapper<windows::Storage::Streams::IInputStream>,
+    reader: std::sync::Arc<SendWrapper<windows::Storage::Streams::DataReader>>,
 ) {
-    use windows::Storage::Streams::{DataReader, InputStreamOptions};
-    let SendWrapper(input) = input;
     let cancelled = || cancel.load(std::sync::atomic::Ordering::Relaxed);
-    let reader = match DataReader::CreateDataReader(&input) {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = app.emit("gaia-closed", format!("reader setup failed: {e}"));
-            return;
-        }
-    };
-    let _ = reader.SetInputStreamOptions(InputStreamOptions::Partial);
     let mut buf = [0u8; 1024];
     loop {
         // Deliberate disconnect: cancel set -> exit silently.
@@ -251,19 +268,25 @@ fn reader_loop(
         {
             Ok(n) => n as usize,
             Err(e) => {
-                let _ = app.emit("gaia-closed", format!("read failed: {e}"));
+                if !cancelled() {
+                    let _ = app.emit("gaia-closed", format!("read failed: {e}"));
+                }
                 return;
             }
         };
         if n == 0 {
-            let _ = app.emit(
-                "gaia-closed",
-                "stream ended (device closed the channel)".to_string(),
-            );
+            if !cancelled() {
+                let _ = app.emit(
+                    "gaia-closed",
+                    "stream ended (device closed the channel)".to_string(),
+                );
+            }
             return;
         }
         if let Err(e) = reader.ReadBytes(&mut buf[..n]) {
-            let _ = app.emit("gaia-closed", format!("read failed: {e}"));
+            if !cancelled() {
+                let _ = app.emit("gaia-closed", format!("read failed: {e}"));
+            }
             return;
         }
         let _ = app.emit("gaia-rx", buf[..n].to_vec());
@@ -273,7 +296,9 @@ fn reader_loop(
 pub fn write(conn: &Connection, bytes: &[u8]) -> Result<(), String> {
     let guard = conn.writer.lock().unwrap();
     if let Some(writer) = guard.as_ref() {
-        writer.WriteBytes(bytes).map_err(|e| format!("write failed: {e}"))?;
+        writer
+            .WriteBytes(bytes)
+            .map_err(|e| format!("write failed: {e}"))?;
         writer
             .StoreAsync()
             .map_err(|e| e.to_string())?
@@ -288,7 +313,12 @@ pub fn write(conn: &Connection, bytes: &[u8]) -> Result<(), String> {
 pub fn disconnect(conn: Connection) {
     conn.cancel
         .store(true, std::sync::atomic::Ordering::Relaxed);
-    if let Some(writer) = conn.writer.lock().unwrap().take() {
-        let _ = writer.FlushAsync();
+    // Release the reader thread first: a blocked LoadAsync returns as soon
+    // as the DataReader is closed. Its error paths check `cancel` and stay
+    // silent, so no spurious gaia-closed reaches the frontend.
+    if let Some(reader) = conn.reader.lock().unwrap().take() {
+        let _ = reader.Close();
     }
+    // Dropping the DataWriter and the socket (fields of Connection) closes
+    // the stream and the RFCOMM channel: teardown is now explicit and owned.
 }
