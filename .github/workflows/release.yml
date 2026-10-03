@@ -60,6 +60,9 @@ jobs:
 
       - name: Build Tauri app (Windows)
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           npx tauri build --target x86_64-pc-windows-msvc 2>&1 | Tee-Object -FilePath tauri-build.log | Out-Null
           if ($LASTEXITCODE -ne 0) {
@@ -129,6 +132,38 @@ jobs:
           Copy-Item $exe.FullName "Smart.Connect_x64-setup.exe"
           Write-Output "Copied $($exe.Name) -> Smart.Connect_x64-setup.exe"
 
+      - name: Prepare updater manifest (latest.json)
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $tag = "v$($conf.version)"
+          $exe = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          $sig = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe.sig" | Select-Object -First 1
+          if (-not $exe) { throw "NSIS installer not found" }
+          if (-not $sig) { throw "Updater signature (*.exe.sig) not found - was TAURI_SIGNING_PRIVATE_KEY set on the build step?" }
+          $name = [uri]::EscapeDataString($exe.Name)
+          $manifest = [ordered]@{
+            version  = $conf.version
+            notes    = "Smart Connect $($conf.version)"
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = (Get-Content $sig.FullName -Raw).Trim()
+                url = "https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/download/$tag/$name"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path latest.json -Encoding utf8NoBOM
+          Write-Output "--- latest.json ---"
+          Get-Content latest.json
+          npx tauri signer sign latest.json
+          if ($LASTEXITCODE -ne 0) { throw "signing latest.json failed" }
+          if (-not (Test-Path latest.json.sig)) { throw "latest.json.sig was not produced" }
+
       - name: Create GitHub Release
         if: startsWith(github.ref_name, 'v')
         uses: softprops/action-gh-release@v2
@@ -141,8 +176,11 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe.sig
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
             Smart.Connect_x64-setup.exe
+            latest.json
+            latest.json.sig
 
       - name: Upload build artifact (always)
         if: always()

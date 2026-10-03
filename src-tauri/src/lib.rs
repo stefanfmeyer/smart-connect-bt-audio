@@ -4,6 +4,8 @@ mod gaia;
 pub fn run() {
     tauri::Builder::default()
         .manage(gaia::new_state())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             gaia::list_devices,
             gaia::gaia_connect,

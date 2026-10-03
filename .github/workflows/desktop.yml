@@ -34,7 +34,9 @@ jobs:
       - name: Build Tauri app (Windows)
         shell: pwsh
         run: |
-          npx tauri build --target x86_64-pc-windows-msvc 2>&1 | Tee-Object -FilePath tauri-build.log | Out-Null
+          # Push build: unsigned (no updater artifacts). Release builds are
+          # signed in release.yml via the TAURI_SIGNING_* secrets.
+          npx tauri build --target x86_64-pc-windows-msvc --config '{"bundle":{"createUpdaterArtifacts":false}}' 2>&1 | Tee-Object -FilePath tauri-build.log | Out-Null
           if ($LASTEXITCODE -ne 0) {
             Get-Content tauri-build.log -Tail 250 | ForEach-Object {
               "::error::$_"

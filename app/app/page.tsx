@@ -6,6 +6,7 @@ import { APP_VERSION } from '@/lib/version';
 import { currentNoiseMode, NoiseMode, ProtocolLine, useHeadphones } from '@/lib/ble/use-headphones';
 import { HeadphoneProfile, loadProfiles, profileFromSnapshot, saveProfiles } from '@/lib/profiles';
 import { SOUND_MODE, SOUND_MODE_NAMES } from '@/lib/ble/sennheiser';
+import { IDLE_UPDATE, startAutoUpdate, UpdateState } from '@/lib/updater';
 
 const NOISE_MODES: Array<{ id: NoiseMode; label: string }> = [
   { id: 'off', label: 'Off' },
@@ -27,6 +28,7 @@ export default function Home() {
   const [localEq, setLocalEq] = useState<number[] | null>(null);
   const [mounted, setMounted] = useState(false);
   const [onDesk, setOnDesk] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState>(IDLE_UPDATE);
   const levelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eqTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consoleRef = useRef<HTMLDivElement | null>(null);
@@ -36,6 +38,17 @@ export default function Home() {
     setOnDesk(isTauri());
     setProfiles(loadProfiles());
   }, []);
+
+  // Auto-update: check on every desktop launch. Fully automatic policy — a
+  // newer signed release is downloaded and installed without asking; the
+  // isConnected callback defers the install if a device session is live.
+  const statusRef = useRef(hp.status);
+  statusRef.current = hp.status;
+  useEffect(() => {
+    if (mounted && onDesk) {
+      startAutoUpdate(setUpdateState, () => statusRef.current === 'connected');
+    }
+  }, [mounted, onDesk]);
 
   useEffect(() => {
     if (showConsole && consoleRef.current) {
@@ -144,6 +157,38 @@ export default function Home() {
       </header>
 
       <main className="app-main">
+        {updateState.phase === 'checking' && (
+          <div className="banner">
+            <span>Checking for updates…</span>
+          </div>
+        )}
+        {updateState.phase === 'downloading' && (
+          <div className="banner">
+            <span>
+              Downloading update to v{updateState.version}
+              {updateState.progress !== null ? ` — ${updateState.progress}%` : ''} — the app restarts automatically when done.
+            </span>
+          </div>
+        )}
+        {updateState.phase === 'ready' && (
+          <div className="banner">
+            <span>
+              Update to v{updateState.version} is ready — it installs automatically the next time you start Smart Connect.
+            </span>
+          </div>
+        )}
+        {updateState.phase === 'installing' && (
+          <div className="banner">
+            <span>Installing update to v{updateState.version} — restarting…</span>
+          </div>
+        )}
+        {updateState.phase === 'failed' && (
+          <div className="banner">
+            <span>Update check failed (app keeps working): {updateState.error}</span>
+            <button onClick={() => setUpdateState(IDLE_UPDATE)}>Dismiss</button>
+          </div>
+        )}
+
         {!webBluetoothSupported && (
           <div className="banner">
             <span>
