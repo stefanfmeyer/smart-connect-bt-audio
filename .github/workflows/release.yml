@@ -145,7 +145,9 @@ jobs:
           $sig = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe.sig" | Select-Object -First 1
           if (-not $exe) { throw "NSIS installer not found" }
           if (-not $sig) { throw "Updater signature (*.exe.sig) not found - was TAURI_SIGNING_PRIVATE_KEY set on the build step?" }
-          $name = [uri]::EscapeDataString($exe.Name)
+          # GitHub normalizes asset names: spaces -> dots in download URLs.
+          # Percent-encoding the space yields 404s, so mirror the dot form.
+          $name = $exe.Name.Replace(" ", ".")
           $manifest = [ordered]@{
             version  = $conf.version
             notes    = "Smart Connect $($conf.version)"
