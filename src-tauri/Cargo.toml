@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.2.1"
+version = "0.3.0"
 description = "Unofficial desktop control for Sennheiser headphones (GAIA over Bluetooth Classic RFCOMM): noise control, EQ and profiles."
 authors = ["Stefan Meyer"]
 license = "MIT"
@@ -38,3 +38,7 @@ windows = { version = "0.61", features = [
   "Storage",
   "Storage_Streams",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd", "rfcomm"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "io-util", "sync"] }

@@ -17,7 +17,65 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend (static export)
+        run: npm run build:export
+
+      - name: Build Tauri app (deb, rpm, AppImage)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --target x86_64-unknown-linux-gnu
+
+      - name: Collect Linux artifacts
+        run: |
+          mkdir -p linux-dist
+          B=src-tauri/target/x86_64-unknown-linux-gnu/release/bundle
+          cp $B/deb/*.deb linux-dist/
+          cp $B/rpm/*.rpm linux-dist/
+          cp $B/appimage/*.AppImage linux-dist/
+          if ls $B/appimage/*.AppImage.sig >/dev/null 2>&1; then
+            cp $B/appimage/*.AppImage.sig linux-dist/
+          else
+            echo "::warning::No AppImage signature found - Linux updater entry will be skipped"
+          fi
+          ls -la linux-dist/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-connect-linux-x64
+          path: linux-dist/*
+          if-no-files-found: error
+
   release-windows:
+    needs: release-linux
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -132,6 +190,12 @@ jobs:
           Copy-Item $exe.FullName "Smart.Connect_x64-setup.exe"
           Write-Output "Copied $($exe.Name) -> Smart.Connect_x64-setup.exe"
 
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: smart-connect-linux-x64
+          path: linux-dist
+
       - name: Prepare updater manifest (latest.json)
         shell: pwsh
         env:
@@ -159,6 +223,21 @@ jobs:
               }
             }
           }
+          # Linux updater target: the signed AppImage from the release-linux job.
+          $linuxDir = "linux-dist"
+          if (Test-Path $linuxDir) {
+            $appimage = Get-ChildItem "$linuxDir/*.AppImage" | Select-Object -First 1
+            $appimageSig = Get-ChildItem "$linuxDir/*.AppImage.sig" | Select-Object -First 1
+            if ($appimage -and $appimageSig) {
+              $manifest.platforms["linux-x86_64"] = [ordered]@{
+                signature = (Get-Content $appimageSig.FullName -Raw).Trim()
+                url = "https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/download/$tag/$($appimage.Name)"
+              }
+              Write-Output "Linux updater entry added: $($appimage.Name)"
+            } else {
+              Write-Warning "No signed AppImage found - Linux updater entry skipped."
+            }
+          }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path latest.json -Encoding utf8NoBOM
           Write-Output "--- latest.json ---"
           Get-Content latest.json
@@ -181,6 +260,10 @@ jobs:
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe.sig
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
             Smart.Connect_x64-setup.exe
+            linux-dist/*.deb
+            linux-dist/*.rpm
+            linux-dist/*.AppImage
+            linux-dist/*.AppImage.sig
             latest.json
             latest.json.sig
 

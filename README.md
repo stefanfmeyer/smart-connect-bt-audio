@@ -1,12 +1,12 @@
 # Smart Connect for Sennheiser
 
-An unofficial, open-source **Windows desktop app** that controls Sennheiser headphones directly
+An unofficial, open-source **Windows + Linux desktop app** that controls Sennheiser headphones directly
 over Bluetooth: noise cancelling modes, equalizer, bass boost, sound modes and battery.
 No account, no cloud — everything runs locally on your machine, speaking the same
 **GAIA** control protocol (Bluetooth Classic RFCOMM) the official vendor app uses.
 
-Built with Next.js + TypeScript in a Tauri shell (Rust/WinRT transport). UI uses the monochrome
-Longship theme. Primary/verified hardware: **MOMENTUM 4 Wireless**.
+Built with Next.js + TypeScript in a Tauri shell (Rust transport: WinRT on Windows, BlueZ on Linux).
+UI uses the monochrome Longship theme. Primary/verified hardware: **MOMENTUM 4 Wireless**.
 
 ## Features
 
@@ -37,6 +37,28 @@ Longship theme. Primary/verified hardware: **MOMENTUM 4 Wireless**.
 
 Older versions stay available on the
 [releases page](https://github.com/stefanfmeyer/smart-connect-bt-audio/releases).
+
+## Download & install (Linux x64)
+
+Three packages are attached to every release:
+
+| Distro | File | Install |
+| --- | --- | --- |
+| Linux Mint / Debian / Ubuntu | `*.deb` | `sudo apt install ./Smart.Connect_<version>_amd64.deb` |
+| Fedora / RHEL / openSUSE | `*.rpm` | `sudo dnf install ./Smart.Connect_<version>_x86_64.rpm` |
+| Arch / any distro | `*.AppImage` | `chmod +x *.AppImage && ./Smart.Connect_<version>_amd64.AppImage` |
+
+Requirements:
+
+1. Pair your headphones first — GNOME/KDE Bluetooth settings or `bluetoothctl pair <MAC>`
+   (the app lists paired devices only).
+2. The `bluez` daemon must be running (`systemctl status bluetooth`); it ships with every
+   mainstream distro.
+3. Close the official Sennheiser Smart Control app before connecting — both apps fight
+   over the same RFCOMM control socket.
+
+Linux builds auto-update too (the AppImage is the updater target; .deb/.rpm users get the
+update through the same in-app flow as a fresh install prompt).
 
 ## Troubleshooting
 
