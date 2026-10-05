@@ -27,6 +27,14 @@ export class GaiaClient {
     reject: (e: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   } | null = null;
+  /**
+   * Parking for responses that arrive when no matching exchange is pending
+   * (slow link, split timing, unsolicited status pushes). Keyed by response
+   * id; a later exchange for the same id resolves instantly from here. This
+   * is what turns "timeout waiting for response" into a working UI on the
+   * MOMENTUM 4, whose RFCOMM link answers up to one command-slot late.
+   */
+  private late = new Map<number, { packet: GaiaPacket; at: number }>();
   private notificationHandler: ((e: Event) => void) | null = null;
 
   // Desktop (Tauri RFCOMM) transport. When set, all writes route through it,
@@ -61,6 +69,7 @@ export class GaiaClient {
     this.framing = session.framing;
     this.sequence = 0;
     this.decodeState = newDecodeState();
+    this.late.clear();
   }
 
   /** Transport dropped the link (unexpected close, not a local disconnect()). */
@@ -76,6 +85,7 @@ export class GaiaClient {
     this.framing = framing;
     this.sequence = 0;
     this.decodeState = newDecodeState();
+    this.late.clear();
   }
 
   /** Adopt the (probed) framing as the active one. */
@@ -296,13 +306,16 @@ export class GaiaClient {
       this.pending = null;
     }
     this.characteristic = null;
+    this.late.clear();
   }
 
   /**
    * Send a command and await its GAIA response packet. Serialized.
-   * Rejects on GAIA error responses and on timeout.
+   * Rejects on GAIA error responses and on timeout. The RFCOMM default is
+   * generous (8s): the M4 link answers correctly but can straddle command
+   * slots; unmatched answers are parked and satisfy a later exchange.
    */
-  exchange(command: number, payload: Uint8Array = new Uint8Array(0), timeoutMs = 4000): Promise<GaiaPacket> {
+  exchange(command: number, payload: Uint8Array = new Uint8Array(0), timeoutMs = 8000): Promise<GaiaPacket> {
     const run = () => this.exchangeInner(command, payload, timeoutMs);
     const result = this.queue.then(run, run);
     this.queue = result.then(
@@ -337,11 +350,26 @@ export class GaiaClient {
   private async exchangeInner(command: number, payload: Uint8Array, timeoutMs: number): Promise<GaiaPacket> {
     if (!this.connected || (!this.transport && !this.characteristic)) throw new Error('not connected');
 
+    const expected = responseFor(command);
+
+    // A previous exchange for this command may have timed out AFTER the
+    // device answered (slow RFCOMM link); its parked response satisfies
+    // this exchange instantly. Stale entries (>30s) are dropped so a fresh
+    // query can never be answered with outdated state.
+    const parked = this.late.get(expected);
+    if (parked) {
+      this.late.delete(expected);
+      if (Date.now() - parked.at <= 30_000) {
+        this.log(`   reusing parked response 0x${expected.toString(16).padStart(4, '0')} (device answered earlier)`);
+        return parked.packet;
+      }
+      this.log(`   discarded stale parked response 0x${expected.toString(16).padStart(4, '0')}`);
+    }
+
     const packet: GaiaPacket = { vendorId: VENDOR_ID, command, payload };
     const framed = framePacket(packet, this.framing, this.sequence++ & 0xff);
     this.log(`TX ${hex(framed.bytes)}`);
 
-    const expected = responseFor(command);
     const promise = new Promise<GaiaPacket>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending?.command === expected) {
@@ -391,6 +419,24 @@ export class GaiaClient {
           } else {
             pending.resolve(packet);
           }
+        } else {
+          // No exchange is waiting for this id: park it. On the M4's slow
+          // RFCOMM link responses routinely arrive after their exchange has
+          // already timed out; a later exchange for the same id resolves
+          // from this parking spot instead of timing out again.
+          this.late.set(wireId, { packet, at: Date.now() });
+          if (this.late.size > 8) {
+            let oldest: number | null = null;
+            let oldestAt = Infinity;
+            for (const [id, entry] of this.late) {
+              if (entry.at < oldestAt) {
+                oldestAt = entry.at;
+                oldest = id;
+              }
+            }
+            if (oldest !== null) this.late.delete(oldest);
+          }
+          this.log(`   parked late response 0x${wireId.toString(16).padStart(4, '0')} for the next matching exchange`);
         }
       }
       this.onNotification?.(packet);

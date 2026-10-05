@@ -139,6 +139,63 @@ async function main() {
     check('tryCommands returns null when nothing is answered', answered === null, `got ${answered}`);
   }
 
+  // --- 8. split frame: a chunk ending in a lone FF must be retained ----------
+  // Observed live on the M4 RFCOMM link: the decoder dropped the leading FF,
+  // desyncing the stream and cascading into "no usable answer" everywhere.
+  {
+    const client4 = new GaiaClient(() => undefined);
+    let splitGot: GaiaPacket | null = null;
+    client4.onNotification = (p) => {
+      if (p.command === 0x1b05) splitGot = p;
+    };
+    client4.attachTransport({
+      framing: 'spp-style',
+      deviceName: 'split-chunk (simulated)',
+      write: async () => undefined,
+      close: () => undefined,
+    });
+    const frame = framePacket({ vendorId: 0x0495, command: 0x1b05, payload: new Uint8Array([1]) }, 'spp-style', 0).bytes;
+    client4.ingestTransportBytes(frame.slice(0, 1)); // chunk ends right after FF
+    client4.ingestTransportBytes(frame.slice(1)); // continuation arrives next
+    await new Promise((r) => setTimeout(r, 10));
+    check(
+      'split frame across chunks decodes (lone FF retained)',
+      splitGot !== null && (splitGot as GaiaPacket).payload[0] === 1,
+    );
+  }
+
+  // --- 9. late response: parked after timeout, reused by next exchange -------
+  // Observed live: the M4 answers correctly but after the exchange timed out;
+  // the next exchange for the same id must resolve from the parked answer.
+  {
+    const client5 = new GaiaClient(() => undefined);
+    client5.attachTransport({
+      framing: 'spp-style',
+      deviceName: 'slow-link (simulated)',
+      write: async () => undefined,
+      close: () => undefined,
+    });
+    const slow = client5.exchange(0x0603, new Uint8Array(0), 50);
+    await new Promise((r) => setTimeout(r, 80)); // let the timeout fire
+    let timedOut = false;
+    await slow.catch((e: Error) => {
+      timedOut = /timeout/.test(e.message);
+    });
+    check('first exchange times out on the slow link', timedOut);
+    // The device's answer finally arrives -> no matching pending -> parked.
+    client5.ingestTransportBytes(
+      framePacket({ vendorId: 0x0495, command: 0x0703, payload: new Uint8Array([42]) }, 'spp-style', 0).bytes,
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    const t0 = Date.now();
+    const again = await client5.exchange(0x0603, new Uint8Array(0), 8000);
+    check(
+      'parked late response satisfies the next matching exchange instantly',
+      again.payload[0] === 42 && Date.now() - t0 < 100,
+      `payload=${hex(again.payload)} dt=${Date.now() - t0}ms`,
+    );
+  }
+
   if (failures > 0) {
     console.error(`\n${failures} check(s) FAILED`);
     process.exit(1);

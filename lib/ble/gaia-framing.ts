@@ -116,6 +116,12 @@ export function decodeStream(chunk: Uint8Array, state: DecodeState): { packets: 
       state.buffer.splice(0, syncIdx);
     }
 
+    // A lone trailing 0xFF is the START of a frame whose continuation is in
+    // the next chunk. It must be retained: dropping it desyncs the stream
+    // and cascades into every later frame (observed live on the M4 RFCOMM
+    // link, where chunk boundaries split frames constantly).
+    if (state.buffer.length === 1 && state.buffer[0] === 0xff) break;
+
     if (state.buffer.length >= 2 && state.buffer[0] === 0xff && (state.buffer[1] === 0x03 || state.buffer[1] === 0x04)) {
       if (state.buffer.length < 4) break; // wait for length bytes
       const len = (state.buffer[2] << 8) | state.buffer[3];
