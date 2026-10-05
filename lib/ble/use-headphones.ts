@@ -345,6 +345,11 @@ export function useHeadphones() {
 
   const setSoundMode = useCallback(
     async (mode: number) => {
+      // The MOMENTUM 4 rejects an explicit "Off" audio mode (GAIA error
+      // status 5): Off is the absence of a mode on this device, not a
+      // settable value. Sending it only produces a rejected command, so it
+      // is treated as a no-op here (profiles applying "Off" simply skip).
+      if (mode === SOUND_MODE.off) return;
       await run(async (client) => {
         await client.exchange(CMD.setAudioMode, audioModePayload(mode));
       });

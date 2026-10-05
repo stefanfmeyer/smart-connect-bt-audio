@@ -259,7 +259,15 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
             std::thread::spawn(move || reader_loop(app, cancel, thread_reader));
         }
 
-        let display = format!("{device_name} (RFCOMM ch {channel})");
+        // Display name: the device name only. The RFCOMM service-instance
+        // string Windows returns as "channel" is plumbing (a long
+        // Bluetooth#...#RFCOMM:...{uuid} blob) and stays in the console log,
+        // not in the header.
+        let display = if device_name.is_empty() {
+            "headphones".to_string()
+        } else {
+            device_name
+        };
         remember_channel(app, device_id, channel);
         return Ok((
             display,

@@ -1,6 +1,6 @@
 {
   "name": "smart-connect-bt-audio",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "Unofficial web control for Sennheiser headphones over Web Bluetooth: noise control, EQ and profiles.",
   "scripts": {

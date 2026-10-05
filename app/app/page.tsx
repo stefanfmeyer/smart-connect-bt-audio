@@ -116,13 +116,33 @@ export default function Home() {
   }
 
   async function handleApplyProfile(p: HeadphoneProfile) {
+    // Best-effort per step: one unsupported/rejected step must not abort the
+    // rest of the profile (e.g. sound mode "Off" is a no-op on the M4).
     try {
       await hp.setNoiseMode(p.noiseMode, p.transparencyLevel);
-      if (p.eqBands) await hp.setEqBands(p.eqBands);
-      if (hp.snapshot.bassBoost !== null) await hp.setBassBoost(p.bassBoost);
-      if (p.soundMode !== null) await hp.setSoundMode(p.soundMode);
     } catch {
-      /* surfaced */
+      /* surfaced via console */
+    }
+    if (p.eqBands) {
+      try {
+        await hp.setEqBands(p.eqBands);
+      } catch {
+        /* per-step best effort */
+      }
+    }
+    if (hp.snapshot.bassBoost !== null) {
+      try {
+        await hp.setBassBoost(p.bassBoost);
+      } catch {
+        /* per-step best effort */
+      }
+    }
+    if (p.soundMode !== null) {
+      try {
+        await hp.setSoundMode(p.soundMode);
+      } catch {
+        /* per-step best effort */
+      }
     }
   }
 
@@ -154,7 +174,6 @@ export default function Home() {
           <span className="connection-pill">
             <span className={`connection-dot ${hp.status === 'connected' ? 'on' : hp.status === 'connecting' ? 'wait' : ''}`} />
             {hp.status === 'connected' ? hp.deviceName : hp.status}
-            {hp.framing ? ` · ${hp.framing}` : ''}
           </span>
           {hp.status === 'connected' ? (
             <button onClick={hp.disconnect}>Disconnect</button>
