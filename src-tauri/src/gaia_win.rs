@@ -17,7 +17,7 @@
 //  - RfcommDeviceService::FromIdAsync(HSTRING) -> RfcommDeviceService (not Option)
 //  - RfcommDeviceService::ConnectionHostName() / ServiceName() feed the socket
 
-use super::GaiaDevice;
+use super::{cached_channel, remember_channel, GaiaDevice};
 use tauri::{AppHandle, Emitter};
 
 /// Transparent Send wrapper for WinRT stream objects.
