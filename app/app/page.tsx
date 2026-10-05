@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { isTauri } from '@/lib/ble/tauri-bridge';
 import { APP_VERSION } from '@/lib/version';
 import { currentNoiseMode, NoiseMode, ProtocolLine, useHeadphones } from '@/lib/ble/use-headphones';
-import { HeadphoneProfile, loadProfiles, profileFromSnapshot, saveProfiles } from '@/lib/profiles';
 import { SOUND_MODE, SOUND_MODE_NAMES } from '@/lib/ble/sennheiser';
 import { IDLE_UPDATE, startAutoUpdate, UpdateState } from '@/lib/updater';
 
@@ -21,8 +20,6 @@ const BAND_LABELS = ['100 Hz', '315 Hz', '1 kHz', '3.15 kHz', '8 kHz', '12 kHz',
 
 export default function Home() {
   const hp = useHeadphones();
-  const [profiles, setProfiles] = useState<HeadphoneProfile[]>([]);
-  const [profileName, setProfileName] = useState('');
   const [showConsole, setShowConsole] = useState(false);
   const [localLevel, setLocalLevel] = useState<number | null>(null);
   const [localEq, setLocalEq] = useState<number[] | null>(null);
@@ -36,7 +33,6 @@ export default function Home() {
   useEffect(() => {
     setMounted(true);
     setOnDesk(isTauri());
-    setProfiles(loadProfiles());
   }, []);
 
   // Auto-update: check on every desktop launch. Fully automatic policy — a
@@ -70,11 +66,6 @@ export default function Home() {
     return eqBands.map((g) => `${g > 0 ? '+' : ''}${g.toFixed(1)}`).join(' ');
   }, [eqBands]);
 
-  function persistProfiles(next: HeadphoneProfile[]) {
-    setProfiles(next);
-    saveProfiles(next);
-  }
-
   async function handleConnect(showAll = false) {
     await hp.connect(showAll);
   }
@@ -106,44 +97,6 @@ export default function Home() {
       hp.setEqBand(band, gain).catch(() => undefined);
       setLocalEq(null);
     }, 400);
-  }
-
-  function handleSaveProfile() {
-    const name = profileName.trim() || `Profile ${profiles.length + 1}`;
-    const profile = profileFromSnapshot(name, hp.snapshot, mode ?? 'anc');
-    persistProfiles([...profiles, profile]);
-    setProfileName('');
-  }
-
-  async function handleApplyProfile(p: HeadphoneProfile) {
-    // Best-effort per step: one unsupported/rejected step must not abort the
-    // rest of the profile (e.g. sound mode "Off" is a no-op on the M4).
-    try {
-      await hp.setNoiseMode(p.noiseMode, p.transparencyLevel);
-    } catch {
-      /* surfaced via console */
-    }
-    if (p.eqBands) {
-      try {
-        await hp.setEqBands(p.eqBands);
-      } catch {
-        /* per-step best effort */
-      }
-    }
-    if (hp.snapshot.bassBoost !== null) {
-      try {
-        await hp.setBassBoost(p.bassBoost);
-      } catch {
-        /* per-step best effort */
-      }
-    }
-    if (p.soundMode !== null) {
-      try {
-        await hp.setSoundMode(p.soundMode);
-      } catch {
-        /* per-step best effort */
-      }
-    }
   }
 
   return (
@@ -239,8 +192,8 @@ export default function Home() {
             <h1>{onDesk ? 'Control your Sennheiser headphones.' : 'Control your Sennheiser from the browser.'}</h1>
             <p>
               {onDesk
-                ? 'Noise control, equalizer and personal sound profiles over a direct Bluetooth connection — no account, no cloud, nothing leaves your machine. Headphones must be paired with this PC in Windows Bluetooth settings.'
-                : 'Noise control, equalizer and personal sound profiles over a direct Bluetooth connection to your PC — no account, no install, nothing leaves your machine. Headphones must already be paired with this computer in your operating system\u2019s Bluetooth settings.'}
+                ? 'Noise control, equalizer and sound modes over a direct Bluetooth connection — no account, no cloud, nothing leaves your machine. Headphones must be paired with this PC in Windows Bluetooth settings.'
+                : 'Noise control, equalizer and sound modes over a direct Bluetooth connection to your PC — no account, no install, nothing leaves your machine. Headphones must already be paired with this computer in your operating system\u2019s Bluetooth settings.'}
             </p>
             <button className="btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => handleConnect()} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
               {hp.status === 'connecting' ? 'Connecting…' : 'Connect headphones'}
@@ -414,51 +367,6 @@ export default function Home() {
                   disabled={hp.busy || hp.snapshot.bassBoost === null}
                   onClick={() => hp.setBassBoost(!hp.snapshot.bassBoost).catch(() => undefined)}
                 />
-              </div>
-            </section>
-
-            {/* Profiles */}
-            <section className="card">
-              <div className="card-title">Profiles</div>
-              <div className="card-row">
-                <input
-                  className="input"
-                  style={{ flex: 1 }}
-                  placeholder="Profile name"
-                  value={profileName}
-                  onChange={(e) => setProfileName(e.target.value)}
-                />
-                <button onClick={handleSaveProfile} disabled={hp.busy}>
-                  Save current settings
-                </button>
-              </div>
-              {profiles.length === 0 ? (
-                <div className="hint">No profiles yet. Tune the headphones, then save the settings here.</div>
-              ) : (
-                <div className="profile-list">
-                  {profiles.map((p) => (
-                    <div className="profile-item" key={p.id}>
-                      <div>
-                        <div className="profile-name">{p.name}</div>
-                        <div className="profile-summary">
-                          {labelForMode(p.noiseMode)}
-                          {p.noiseMode === 'transparency' ? ` ${p.transparencyLevel}%` : ''} · EQ{' '}
-                          {p.eqBands ? p.eqBands.map((g) => `${g > 0 ? '+' : ''}${g.toFixed(1)}`).join('/') : '—'} · bass{' '}
-                          {p.bassBoost ? 'on' : 'off'}
-                        </div>
-                      </div>
-                      <div className="profile-actions">
-                        <button className="btn-primary" disabled={hp.busy} onClick={() => handleApplyProfile(p)}>
-                          Apply
-                        </button>
-                        <button onClick={() => persistProfiles(profiles.filter((x) => x.id !== p.id))}>Delete</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="hint">
-                Profiles live in this browser&rsquo;s local storage on this machine. They are never uploaded anywhere.
               </div>
             </section>
 

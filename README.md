@@ -1,8 +1,8 @@
 # Smart Connect for Sennheiser
 
 An unofficial, open-source **Windows desktop app** that controls Sennheiser headphones directly
-over Bluetooth: noise cancelling modes, equalizer, bass boost, sound modes, battery and personal
-profiles. No account, no cloud — everything runs locally on your machine, speaking the same
+over Bluetooth: noise cancelling modes, equalizer, bass boost, sound modes and battery.
+No account, no cloud — everything runs locally on your machine, speaking the same
 **GAIA** control protocol (Bluetooth Classic RFCOMM) the official vendor app uses.
 
 Built with Next.js + TypeScript in a Tauri shell (Rust/WinRT transport). UI uses the monochrome
@@ -17,9 +17,6 @@ Longship theme. Primary/verified hardware: **MOMENTUM 4 Wireless**.
 - **Sound modes** — Equalizer / Podcast / Sound Personalization (the device rejects Sound
   Personalization unless a calibrated profile exists and Better Compatibility mode is active).
 - **Battery** status with live read-back after every change.
-- **Profiles** — save the current settings locally (noise mode, transparency level, EQ curve,
-  bass boost, sound mode) and re-apply them to the headphones in one click. Profiles are stored
-  on your machine and never leave it.
 - **Protocol console** — every GAIA frame in and out, byte for byte, for debugging and for
   extending device support.
 
