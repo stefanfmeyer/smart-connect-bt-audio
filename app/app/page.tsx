@@ -128,6 +128,16 @@ export default function Home() {
 
   return (
     <div className="app-root">
+      {hp.status === 'connecting' && (
+        <div className="connect-overlay" role="status" aria-live="polite">
+          <div className="spinner" />
+          <div className="overlay-text">Connecting…</div>
+          <div className="overlay-sub">
+            Opening the GAIA control channel to your headphones. This usually takes a couple of seconds; the first
+            connect after an app update can take a little longer.
+          </div>
+        </div>
+      )}
       <header className="app-header">
         <div className="app-logo">
           Smart Connect for Sennheiser <span className="version-pill">v{APP_VERSION}</span>

@@ -219,8 +219,21 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
 
         let probe_answered = {
             let load_op = session_reader.LoadAsync(64).map_err(|e| e.to_string())?;
-            if wait_for_status(|| load_op.Status().map(|s| s.0), 1500) {
-                matches!(load_op.get(), Ok(n) if n > 0)
+            // 3s: slow links must not get their (correct) channel skipped.
+            if wait_for_status(|| load_op.Status().map(|s| s.0), 3000) {
+                match load_op.get() {
+                    Ok(n) if n > 0 => {
+                        // Consume the probe answer. Left unread it stays at the
+                        // head of the DataReader's unconsumed buffer and SHIFTS
+                        // the whole stream by one frame: every response is then
+                        // delivered one command late, each exchange burns its
+                        // full timeout, and connecting takes minutes (observed
+                        // live on v0.1.7). Reading the bytes here unshifts it.
+                        let mut probe_buf = vec![0u8; n as usize];
+                        session_reader.ReadBytes(&mut probe_buf).is_ok()
+                    }
+                    _ => false,
+                }
             } else {
                 let _ = load_op.Cancel();
                 false
