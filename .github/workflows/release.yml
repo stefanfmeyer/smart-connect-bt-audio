@@ -231,7 +231,9 @@ jobs:
             if ($appimage -and $appimageSig) {
               $manifest.platforms["linux-x86_64"] = [ordered]@{
                 signature = (Get-Content $appimageSig.FullName -Raw).Trim()
-                url = "https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/download/$tag/$($appimage.Name)"
+                # GitHub normalizes asset names: spaces -> dots in download
+                # URLs (same rule as the Windows installer above).
+                url = "https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/download/$tag/$($appimage.Name.Replace(' ', '.'))"
               }
               Write-Output "Linux updater entry added: $($appimage.Name)"
             } else {
