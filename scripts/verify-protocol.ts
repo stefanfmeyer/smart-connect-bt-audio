@@ -8,6 +8,7 @@ import { decodePacket, hex, packetType, responseFor, VENDOR_ID } from '../lib/bl
 import { decodeStream, framePacket, newDecodeState } from '../lib/ble/gaia-framing';
 import {
   ANC_MODE,
+  audioModePayload,
   eqBandPayload,
   parseAncModes,
   parseBattery,
@@ -15,6 +16,7 @@ import {
   parseEqBand,
   parseEqConfig,
   parseLevel100,
+  parseSoundMode,
 } from '../lib/ble/sennheiser';
 
 let failures = 0;
@@ -127,6 +129,24 @@ console.log('misc: transparency level');
   check('level >100 rejected', !over.ok);
   const b = parseBoolean(new Uint8Array([1]));
   check('boolean true parsed', b.ok && b.value === true);
+}
+
+console.log('sound mode: M4 two-byte wire format');
+{
+  // Set (0x0803) must be [0x00, mode] on the M4 — a 1-byte payload is
+  // rejected with GAIA error status 5 (was a live bug in v0.2.0).
+  const p1 = audioModePayload(1);
+  check('set Equalizer encodes 00 01', hex(p1) === '00 01', hex(p1));
+  const p0 = audioModePayload(0);
+  check('set Off encodes 00 00', hex(p0) === '00 00', hex(p0));
+  const p3 = audioModePayload(3);
+  check('set Sound Personalization encodes 00 03', hex(p3) === '00 03', hex(p3));
+
+  // Get (0x0804) answers [0x00, mode]: parse must read byte 1.
+  const r2 = parseSoundMode(new Uint8Array([0x00, 0x02]));
+  check('2-byte response parses mode from byte 1', r2.ok && r2.value === 2);
+  const r1 = parseSoundMode(new Uint8Array([0x02]));
+  check('legacy 1-byte response still parses', r1.ok && r1.value === 2);
 }
 
 if (failures > 0) {

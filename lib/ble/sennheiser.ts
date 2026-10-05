@@ -105,7 +105,10 @@ export function booleanPayload(value: boolean): Uint8Array {
 }
 
 export function audioModePayload(mode: number): Uint8Array {
-  return payloadBytes(mode);
+  // Sound-mode set (0x0803) takes [0x00, mode] on the M4 — byte 0 is always
+  // 0. A 1-byte payload is rejected with GAIA error status 5 (verified live
+  // and against the hardware-verified community client).
+  return payloadBytes(0, mode);
 }
 
 export function eqBandQuery(band: number): Uint8Array {
@@ -163,6 +166,10 @@ export function parseLevel100(payload: Uint8Array): Parsed<number> {
 }
 
 export function parseSoundMode(payload: Uint8Array): Parsed<number> {
+  // The M4 carries the mode in a 2-byte payload [0x00, mode] (byte 0 is
+  // always 0, community-verified on hardware); accept the 1-byte form other
+  // Sennheiser models use, but prefer byte 1 when the 2-byte form arrives.
+  if (payload.length >= 2) return { ok: true, value: payload[1] };
   if (payload.length < 1) return err('sound mode payload empty');
   return { ok: true, value: payload[0] };
 }
