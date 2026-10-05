@@ -58,6 +58,42 @@ fn gaia_guid() -> windows::core::GUID {
     windows::core::GUID::from_u128(0xa2129ff3_081b_4c45_8afe_469d9c4842ec)
 }
 
+/// Channel cache: device id -> RFCOMM channel that answered the GAIA probe.
+/// The winning channel is remembered on disk (app data dir) so every connect
+/// after the first skips the dead-channel scan entirely and goes live after
+/// ONE probe (~1s) instead of ~11s of sequential probing.
+fn cache_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("data dir failed: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("rfcomm-channel-cache.json"))
+}
+
+fn cached_channel(app: &AppHandle, device_id: &str) -> Option<String> {
+    let path = cache_path(app).ok()?;
+    let text = std::fs::read_to_string(path).ok()?;
+    let map: std::collections::HashMap<String, String> = serde_json::from_str(&text).ok()?;
+    map.get(device_id).cloned()
+}
+
+fn remember_channel(app: &AppHandle, device_id: &str, channel: &str) {
+    let Ok(path) = cache_path(app) else { return };
+    let mut map: std::collections::HashMap<String, String> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    if map.get(device_id).map(|c| c.as_str()) == Some(channel) {
+        return; // already correct; skip the write
+    }
+    map.insert(device_id.to_string(), channel.to_string());
+    if let Ok(json) = serde_json::to_string(&map) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
 pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
     use windows::Devices::Bluetooth::Rfcomm::RfcommDeviceService;
     use windows::Devices::Enumeration::DeviceInformation;
@@ -127,6 +163,16 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
         }
     }
 
+    // Cached winning channel first: reconnects answer in a single probe and
+    // the dead-channel scan never runs again (until the cache entry misses,
+    // in which case the full scan below still finds the channel and re-saves).
+    if let Some(hit) = cached_channel(app, device_id) {
+        if let Some(pos) = channels.iter().position(|c| *c == hit) {
+            channels.remove(pos);
+        }
+        channels.insert(0, hit);
+    }
+
     let mut last_err = String::new();
     for channel in &channels {
         let socket = StreamSocket::new().map_err(|e| e.to_string())?;
@@ -135,9 +181,9 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
             .map_err(|e| format!("socket connect failed: {e}"))?;
         // Bounded wait: a dead channel must not hang the connect (explicit
         // Cancel + drop of the socket cancels the outstanding operation).
-        if !wait_for_status(|| connect_op.Status().map(|s| s.0), 4000) {
+        if !wait_for_status(|| connect_op.Status().map(|s| s.0), 2500) {
             let _ = connect_op.Cancel();
-            last_err = format!("channel {channel}: connect did not complete in 4s");
+            last_err = format!("channel {channel}: connect did not complete in 2.5s");
             continue;
         }
         if let Err(e) = connect_op.get() {
@@ -201,6 +247,7 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
         }
 
         let display = format!("{device_name} (RFCOMM ch {channel})");
+        remember_channel(app, device_id, channel);
         return Ok((
             display,
             Connection {
