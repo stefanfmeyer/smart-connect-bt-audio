@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.3.1"
+version = "0.3.2"
 description = "Unofficial desktop control for Bluetooth headphones (GAIA over Bluetooth Classic RFCOMM): noise control, EQ and more."
 authors = ["Stefan Meyer"]
 license = "MIT"
