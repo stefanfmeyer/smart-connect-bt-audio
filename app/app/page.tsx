@@ -113,7 +113,7 @@ export default function Home() {
       )}
       <header className="app-header">
         <div className="app-logo">
-          Smart Connect for Sennheiser <span className="version-pill">v{APP_VERSION}</span>
+          Smart Connect <span className="version-pill">v{APP_VERSION}</span>
         </div>
         <div className="app-header-right">
           {!onDesk && (
@@ -189,41 +189,84 @@ export default function Home() {
 
         {hp.status !== 'connected' ? (
           <section className="hero">
-            <h1>{onDesk ? 'Control your Sennheiser headphones.' : 'Control your Sennheiser from the browser.'}</h1>
-            <p>
-              {onDesk
-                ? 'Noise control, equalizer and sound modes over a direct Bluetooth connection — no account, no cloud, nothing leaves your machine. Headphones must be paired with this PC in Windows Bluetooth settings.'
-                : 'Noise control, equalizer and sound modes over a direct Bluetooth connection to your PC — no account, no install, nothing leaves your machine. Headphones must already be paired with this computer in your operating system\u2019s Bluetooth settings.'}
+            <h1>{'Your headphones. Full control.'}</h1>
+            <p className="hero-sub">
+              Noise cancelling, equalizer, bass and sound modes &mdash; straight over Bluetooth. No account, no cloud:
+              everything stays on this machine.
             </p>
-            <button className="btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => handleConnect()} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
-              {hp.status === 'connecting' ? 'Connecting…' : 'Connect headphones'}
-            </button>
-            <button style={{ alignSelf: 'flex-start' }} onClick={() => handleConnect(true)} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
-              Scan all BLE devices
-            </button>
+
+            <div className="hero-cta-row">
+              <button
+                className="btn-primary btn-lg"
+                onClick={() => handleConnect()}
+                disabled={!webBluetoothSupported || hp.status === 'connecting'}
+              >
+                {hp.status === 'connecting' ? 'Connecting…' : 'Connect your headphones'}
+              </button>
+              <button className="btn-lg" onClick={() => handleConnect(true)} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
+                Not listed? Scan all devices
+              </button>
+            </div>
+
+            <ol className="hero-steps">
+              <li className="step">
+                <span className="step-num">1</span>
+                <div>
+                  <div className="step-title">Pair once</div>
+                  <div className="step-text">
+                    Pair your headphones in your system&rsquo;s Bluetooth settings, as usual.
+                  </div>
+                </div>
+              </li>
+              <li className="step">
+                <span className="step-num">2</span>
+                <div>
+                  <div className="step-title">Wake them up</div>
+                  <div className="step-text">Out of the case, powered on &mdash; idle headphones may stop advertising.</div>
+                </div>
+              </li>
+              <li className="step">
+                <span className="step-num">3</span>
+                <div>
+                  <div className="step-title">Connect</div>
+                  <div className="step-text">
+                    Hit the button above. The app finds the right control channel itself and remembers it.
+                  </div>
+                </div>
+              </li>
+            </ol>
+
             {!onDesk && (
-              <div className="hint">
-                Full noise control and EQ on the <strong>MOMENTUM 4</strong> need the Bluetooth Classic control channel, which
-                no browser can reach &mdash; the{' '}
-                <a href="https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/latest">
-                  <strong>Windows desktop app</strong>
-                </a>{' '}
-                speaks it natively. Get the installer from{' '}
-                <a href="https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/latest">GitHub Releases</a>. This web
-                build remains useful for battery status and models that expose the GAIA control service over BLE.
+              <div className="callout">
+                <div className="callout-title">You are in the browser build</div>
+                <div className="step-text">
+                  Browsers cannot reach the Bluetooth Classic control channel that full noise control and EQ need. The
+                  free desktop app for <a href="https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/latest">Windows</a>{' '}
+                  and <a href="https://github.com/stefanfmeyer/smart-connect-bt-audio/releases/latest">Linux</a> speaks it
+                  natively. This web build still shows battery status for models that expose GAIA over BLE.
+                </div>
               </div>
             )}
-            <div className="hint">
-              If your headphones do not appear in the picker, use <strong>Scan all BLE devices</strong> and select them by
-              name (or their MAC-style id if the name is hidden). Chrome filters devices by advertised name; some
-              Sennheiser models only advertise a raw id. Web Bluetooth only discovers BLE advertisements &mdash; if the
-              headphones are idle they may need to be woken (tap a button on them) to advertise.
-            </div>
-            <div className="hint">
-              Unofficial, independent tool for the Sennheiser range (MOMENTUM, ACCENTUM, CX and similar). Noise control and
-              EQ are verified on hardware that exposes the GAIA control service over BLE; devices that only speak it over
-              Bluetooth Classic cannot be reached from any browser &mdash; the app will tell you if that is the case.
-            </div>
+
+            <details className="hero-advanced">
+              <summary>Supported headphones &amp; troubleshooting</summary>
+              <div className="hero-advanced-body">
+                <p>
+                  Works with headphones that expose a GAIA control service over Bluetooth &mdash; the Sennheiser
+                  MOMENTUM, ACCENTUM and CX ranges are verified on hardware; other GAIA-speaking models work too. Devices
+                  using a different control protocol are listed but will report no answer.
+                </p>
+                <p>
+                  Nothing in the picker? Use <strong>Scan all devices</strong> and select them by name or raw id &mdash;
+                  some models hide their name from Chrome&rsquo;s filter. If a connect fails, close the official vendor
+                  app first (it holds the same control socket), toggle the headphones off/on, then retry.
+                </p>
+                <p>
+                  Every command is logged in the protocol console (shown after connecting) &mdash; paste it into an
+                  issue if your model misbehaves.
+                </p>
+              </div>
+            </details>
           </section>
         ) : (
           <>

@@ -17,12 +17,12 @@ const FEATURES = [
     body: 'Equalizer, Podcast and Sound Personalization modes, switching directly on the headphones — including the guards the device itself enforces.',
   },
   {
-    title: 'Battery & profiles',
-    body: 'Live battery read-back after every change. Save your tuned settings as local profiles and re-apply them to the headphones in one click.',
+    title: 'Battery',
+    body: 'Live battery read-back after every change, with a clear charge bar — no guessing when to dock them.',
   },
   {
     title: 'Protocol console',
-    body: 'Every GAIA frame in and out, byte for byte. Built for debugging, transparency and extending support to more of the Sennheiser range.',
+    body: 'Every GAIA frame in and out, byte for byte. Built for debugging, transparency and extending support to more headphone models.',
   },
   {
     title: 'Private by design',
@@ -34,7 +34,7 @@ export default function Home() {
   return (
     <div className="app-root">
       <header className="app-header">
-        <div className="app-logo">Smart Connect for Sennheiser</div>
+        <div className="app-logo">Smart Connect</div>
         <div className="app-header-right">
           <a className="btn" href="/app">
             Open web app
@@ -49,21 +49,21 @@ export default function Home() {
         <section className="hero">
           <div className="hint">Unofficial · open source · MIT license · no account, no cloud</div>
           <h1>
-            Your Sennheiser.
+            Your headphones.
             <br />
             Fully under your control.
           </h1>
           <p>
-            A free desktop app for Windows that drives your headphones over their native GAIA control channel:
-            noise cancelling, equalizer, sound modes, battery and personal profiles — all local, all direct
-            Bluetooth. Built and verified on the MOMENTUM 4 Wireless.
+            A free desktop app for Windows and Linux that drives your headphones over their native GAIA control
+            channel: noise cancelling, equalizer, sound modes and battery — all local, all direct Bluetooth.
+            Built and verified on the Sennheiser MOMENTUM 4 Wireless; other GAIA-speaking models work too.
           </p>
           <div className="hero-meta">
             <a className="btn btn-primary" href={DOWNLOAD_URL}>
               Download for Windows
             </a>
             <a className="btn" href={RELEASES_URL}>
-              All releases &amp; older versions
+              All releases &amp; Linux packages
             </a>
           </div>
           <div className="hint">

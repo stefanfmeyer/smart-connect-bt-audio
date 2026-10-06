@@ -1,9 +1,10 @@
-# Smart Connect for Sennheiser
+# Smart Connect
 
-An unofficial, open-source **Windows + Linux desktop app** that controls Sennheiser headphones directly
-over Bluetooth: noise cancelling modes, equalizer, bass boost, sound modes and battery.
+An unofficial, open-source **Windows + Linux desktop app** that controls Bluetooth headphones
+directly: noise cancelling modes, equalizer, bass boost, sound modes and battery.
 No account, no cloud — everything runs locally on your machine, speaking the same
-**GAIA** control protocol (Bluetooth Classic RFCOMM) the official vendor app uses.
+**GAIA** control protocol (Bluetooth Classic RFCOMM) the vendor apps use.
+Sennheiser MOMENTUM is the primary/verified hardware; other GAIA-speaking models work too.
 
 Built with Next.js + TypeScript in a Tauri shell (Rust transport: WinRT on Windows, BlueZ on Linux).
 UI uses the monochrome Longship theme. Primary/verified hardware: **MOMENTUM 4 Wireless**.

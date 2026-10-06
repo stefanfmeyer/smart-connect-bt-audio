@@ -1,5 +1,5 @@
 /* ===========================================================================
-   Smart Connect for Sennheiser — Longship monochrome theme
+   Smart Connect — Longship monochrome theme
    Black / grey / white only. Tokens mirror longship/packages/review-ui.
    =========================================================================== */
 
@@ -335,17 +335,137 @@ button:disabled, .btn:disabled {
   flex-wrap: wrap;
 }
 
+/* Hero — pre-connect landing */
 .hero {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-8) 0 var(--sp-4);
+  gap: var(--sp-6);
+  padding: var(--sp-10) 0 var(--sp-4);
 }
 
 .hero h1 {
-  font-size: 30px;
+  font-size: 40px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  max-width: 640px;
+}
+
+.hero-sub {
+  color: var(--text-secondary);
+  font-size: 15px;
+  max-width: 560px;
+  line-height: 1.6;
+}
+
+.hero-cta-row {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-2);
+}
+
+.btn-lg {
+  padding: 11px 22px;
+  font-size: 14px;
+  border-radius: var(--r-md);
+}
+
+.hero-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-4);
+  list-style: none;
+  margin-top: var(--sp-4);
+}
+
+.step {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-secondary);
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.step-title {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.step-text {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.callout {
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--text-primary);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  background: var(--bg-tertiary);
+  max-width: 640px;
+}
+
+.callout-title {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--sp-1);
+}
+
+.hero-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-3);
+  max-width: 680px;
+}
+
+.hero-advanced summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hero-advanced summary:hover {
+  color: var(--text-secondary);
+}
+
+.hero-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-3);
+}
+
+.hero-advanced-body p {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .hero h1 { font-size: 30px; }
+  .hero-steps { grid-template-columns: 1fr; }
 }
 
 .hero p {

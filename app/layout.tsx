@@ -16,9 +16,9 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: 'Smart Connect for Sennheiser',
+  title: 'Smart Connect',
   description:
-    'Free Windows desktop app to control Sennheiser headphones over Bluetooth: noise cancelling, EQ, sound modes, battery and profiles. Not affiliated with Sennheiser or Sonova.',
+    'Free desktop app for Windows and Linux to control Bluetooth headphones: noise cancelling, equalizer, sound modes and battery. Sennheiser MOMENTUM verified. Not affiliated with Sennheiser or Sonova.',
 };
 
 export const viewport: Viewport = {
