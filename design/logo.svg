@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Smart Connect logo v5 (final): headphone silhouette with detached
+       wifi-style audio mark. Small-size strategy: the FULL mark (with wave)
+       is the large icon; at small sizes the wave still has 14px+ clearance
+       after this revision (wave moved down, top arc shrunk, band arc raised
+       slightly). Headband terminals plug into the cups. Monochrome. -->
+  <g fill="none" stroke="#ededed" stroke-linecap="round">
+    <!-- headband -->
+    <path d="M 142 292
+             A 114 114 0 0 1 370 292"
+          stroke-width="30"/>
+    <!-- sound wave, pointing up: two arcs + dot, moved DOWN for clearance -->
+    <path d="M 214 226
+             a 54 54 0 0 1 84 0"
+          stroke-width="26"/>
+    <path d="M 238 250
+             a 26 26 0 0 1 36 0"
+          stroke-width="26"/>
+  </g>
+  <circle cx="256" cy="270" r="13" fill="#ededed"/>
+  <!-- ear cups -->
+  <rect x="116" y="264" width="58" height="104" rx="27" fill="#ededed"/>
+  <rect x="338" y="264" width="58" height="104" rx="27" fill="#ededed"/>
+</svg>
