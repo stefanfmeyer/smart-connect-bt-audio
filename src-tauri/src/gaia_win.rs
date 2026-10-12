@@ -68,6 +68,11 @@ pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
     let selector = RfcommDeviceService::GetDeviceSelector(&service_id).map_err(|e| format!("selector failed: {e}"))?;
     let results_op = DeviceInformation::FindAllAsyncAqsFilter(&windows::core::HSTRING::from(selector))
         .map_err(|e| format!("enumeration failed: {e}"))?;
+    // Same hang risk as FromIdAsync: poll with a deadline instead of .get().
+    if !wait_for_status(|| results_op.Status().map(|s| s.0), 15000) {
+        let _ = results_op.Cancel();
+        return Err("device enumeration timed out after 15s (Bluetooth stack busy?)".into());
+    }
     let results = results_op.get().map_err(|e| format!("enumeration failed: {e}"))?;
 
     let count = results.Size().map_err(|e| e.to_string())?;
@@ -101,6 +106,18 @@ pub fn connect(app: &AppHandle, device_id: &str, fallback_name: &str) -> Result<
 
     let service_op = RfcommDeviceService::FromIdAsync(&windows::core::HSTRING::from(device_id))
         .map_err(|e| format!("service resolve failed: {e}"))?;
+    // FromIdAsync can block for a very long time when the device is off,
+    // in its case, or backed by a stale RFCOMM cache entry (Windows pages
+    // the device / re-runs SDP). A plain .get() here hangs the whole connect
+    // — the frontend then shows the spinner forever. Poll with a deadline
+    // and cancel the operation on timeout instead.
+    if !wait_for_status(|| service_op.Status().map(|s| s.0), 15000) {
+        let _ = service_op.Cancel();
+        return Err(format!(
+            "device did not become reachable within 15s (service resolve timed out). \
+             Is \"{fallback_name}\" powered on and out of its case? Toggle it off/on and retry."
+        ));
+    }
     let service = service_op.get().map_err(|e| format!("service resolve failed: {e}"))?;
 
     let device_name = service

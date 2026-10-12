@@ -78,6 +78,7 @@ export function currentNoiseMode(s: Snapshot): NoiseMode | null {
 export function useHeadphones() {
   const clientRef = useRef<GaiaClient | null>(null);
   const tauriSessionRef = useRef<TransportSession | null>(null);
+  const connectGen = useRef(0);
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [framing, setFraming] = useState<string | null>(null);
@@ -155,6 +156,9 @@ export function useHeadphones() {
       setError(null);
       setStatus('connecting');
       protocolRef.current = [];
+      // Generation guard: a cancelled connect must not flip the UI to
+      // "connected" when its long-running promise eventually resolves.
+      const gen = ++connectGen.current;
       log('info', `Smart Connect v${APP_VERSION} — ${isTauri() ? 'desktop (Bluetooth Classic RFCOMM)' : 'browser (Web Bluetooth)'}`);
 
       // Desktop (Tauri): Bluetooth Classic RFCOMM via the Rust backend.
@@ -166,6 +170,11 @@ export function useHeadphones() {
             const isRx = text.startsWith('RX ');
             log(isTx ? 'tx' : isRx ? 'rx' : 'info', text);
           });
+          if (connectGen.current !== gen) {
+            session.close();
+            log('info', 'connect superseded/cancelled — session dropped');
+            return;
+          }
           client.onNotification = (packet) => applyPacket(packet);
           client.onDisconnected = () => {
             tauriSessionRef.current = null;
@@ -220,6 +229,7 @@ export function useHeadphones() {
   );
 
   const disconnect = useCallback(() => {
+    connectGen.current++;
     tauriSessionRef.current?.close();
     tauriSessionRef.current = null;
     clientRef.current?.disconnect();
@@ -227,6 +237,19 @@ export function useHeadphones() {
     setDeviceName(null);
     setFraming(null);
   }, []);
+
+  /** Abort an in-flight connect: closes the socket when it eventually opens
+      and drops the UI back to the hero instead of an eternal spinner. */
+  const cancelConnect = useCallback(() => {
+    connectGen.current++;
+    tauriSessionRef.current?.close();
+    tauriSessionRef.current = null;
+    clientRef.current?.disconnect();
+    clientRef.current = null;
+    setStatus('disconnected');
+    setError(null);
+    log('info', 'connect cancelled');
+  }, [log]);
 
   /** Serialized command runner with read-back after the write sequence. */
   const run = useCallback(
@@ -372,6 +395,7 @@ export function useHeadphones() {
       protocol,
       connect,
       disconnect,
+      cancelConnect,
       refreshSnapshot,
       refreshBattery,
       setNoiseMode,
@@ -383,7 +407,7 @@ export function useHeadphones() {
       clearError: () => setError(null),
       webBluetoothSupported: typeof navigator !== 'undefined' && !!navigator.bluetooth,
     }),
-    [status, deviceName, framing, snapshot, mode, busy, error, protocol, connect, disconnect, refreshSnapshot, refreshBattery, setNoiseMode, setTransparencyLevel, setEqBand, setEqBands, setBassBoost, setSoundMode],
+    [status, deviceName, framing, snapshot, mode, busy, error, protocol, connect, disconnect, cancelConnect, refreshSnapshot, refreshBattery, setNoiseMode, setTransparencyLevel, setEqBand, setEqBands, setBassBoost, setSoundMode],
   );
 }
 

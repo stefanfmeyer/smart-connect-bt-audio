@@ -135,6 +135,17 @@ h1, h2, h3, h4, h5, h6 {
   text-align: center;
 }
 
+.connect-overlay .overlay-cancel {
+  margin-top: var(--sp-2);
+  background: transparent;
+  border-color: var(--border-light);
+  color: var(--text-secondary);
+}
+.connect-overlay .overlay-cancel:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 @keyframes connect-spin {
   to {
     transform: rotate(360deg);
@@ -527,49 +538,69 @@ button:disabled, .btn:disabled {
   line-height: 1.6;
 }
 
-.hero-cta-row {
+.hero-cta-row,
+.hero-connect {
   display: flex;
   gap: var(--sp-3);
   flex-wrap: wrap;
   margin-top: var(--sp-2);
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .btn-lg {
-  padding: 11px 22px;
-  font-size: 14px;
-  border-radius: var(--r-md);
+  padding: 13px 28px;
+  font-size: 15px;
+  border-radius: var(--r-pill);
 }
 
-.hero-steps {
+.btn-block { min-width: 320px; }
+
+.hero-connect-alt {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 13px;
+  font-family: var(--font);
+}
+.link-btn:hover:not(:disabled) { background: none; border: none; opacity: 0.75; }
+
+.hero-glyph {
+  color: var(--text-secondary);
+  opacity: 0.9;
+  margin-bottom: var(--sp-2);
+}
+
+.hero-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--sp-4);
-  list-style: none;
-  margin-top: var(--sp-4);
+  margin-top: var(--sp-6);
 }
 
-.step {
+.hero-tile {
   display: flex;
-  gap: var(--sp-3);
-  padding: var(--sp-4);
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
 }
 
-.step-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex: none;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--border-strong);
+.tile-title {
   font-family: var(--font-heading);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .step-title {
@@ -634,7 +665,8 @@ button:disabled, .btn:disabled {
 
 @media (max-width: 760px) {
   .hero h1 { font-size: 30px; }
-  .hero-steps { grid-template-columns: 1fr; }
+  .hero-grid { grid-template-columns: 1fr; }
+  .btn-block { min-width: 0; width: 100%; }
 }
 
 .hero p {
