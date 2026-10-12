@@ -72,18 +72,28 @@ pub(crate) fn remember_channel(app: &tauri::AppHandle, device_id: &str, channel:
 }
 
 #[tauri::command]
-pub fn list_devices() -> Result<Vec<GaiaDevice>, String> {
-    platform::list_devices()
+pub async fn list_devices() -> Result<Vec<GaiaDevice>, String> {
+    // Enumeration also sleep-polls with a deadline (see gaia_connect) — keep
+    // it off the main thread for the same reason.
+    tauri::async_runtime::spawn_blocking(platform::list_devices)
+        .await
+        .map_err(|e| format!("enumerate task failed: {e}"))?
 }
 
 #[tauri::command]
-pub fn gaia_connect(
+pub async fn gaia_connect(
     app: tauri::AppHandle,
     state: tauri::State<'_, GaiaState>,
     device_id: String,
     name: String,
 ) -> Result<String, String> {
-    let (name, conn) = platform::connect(&app, &device_id, &name)?;
+    // Blocking WinRT work with sleep-poll deadlines must NEVER run on the
+    // main thread: Tauri executes sync commands on the main/UI thread, and
+    // starving the message pump there freezes (and effectively crashes) the
+    // app. spawn_blocking moves the whole handshake onto a worker thread.
+    let (name, conn) = tauri::async_runtime::spawn_blocking(move || platform::connect(&app, &device_id, &name))
+        .await
+        .map_err(|e| format!("connect task failed: {e}"))??;
     *state.0.lock().unwrap() = Some(conn);
     Ok(name)
 }
