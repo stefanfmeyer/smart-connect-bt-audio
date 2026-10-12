@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@/lib/ble/tauri-bridge';
 import { APP_VERSION } from '@/lib/version';
 import { currentNoiseMode, NoiseMode, ProtocolLine, useHeadphones } from '@/lib/ble/use-headphones';
@@ -29,6 +29,10 @@ export default function Home() {
   const levelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eqTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consoleRef = useRef<HTMLDivElement | null>(null);
+
+  function onConsoleToggle(e: React.SyntheticEvent<HTMLDetailsElement>) {
+    setShowConsole(e.currentTarget.open);
+  }
 
   useEffect(() => {
     setMounted(true);
@@ -60,11 +64,6 @@ export default function Home() {
   // navigator.bluetooth differs between server (absent) and Chrome (present),
   // which would otherwise trip React hydration error #418.
   const webBluetoothSupported = mounted && hp.webBluetoothSupported;
-
-  const eqSummary = useMemo(() => {
-    if (!eqBands) return '';
-    return eqBands.map((g) => `${g > 0 ? '+' : ''}${g.toFixed(1)}`).join(' ');
-  }, [eqBands]);
 
   async function handleConnect(showAll = false) {
     await hp.connect(showAll);
@@ -126,7 +125,7 @@ export default function Home() {
           )}
           <span className="connection-pill">
             <span className={`connection-dot ${hp.status === 'connected' ? 'on' : hp.status === 'connecting' ? 'wait' : ''}`} />
-            {hp.status === 'connected' ? hp.deviceName : hp.status}
+            {hp.status === 'connected' ? hp.status : hp.status}
           </span>
           {hp.status === 'connected' ? (
             <button onClick={hp.disconnect}>Disconnect</button>
@@ -270,63 +269,36 @@ export default function Home() {
           </section>
         ) : (
           <>
-            {/* Status */}
-            <section className="grid-2">
-              <div className="card">
-                <div className="card-title">Device</div>
-                <div className="card-row">
-                  <div>
-                    <div className="stat-value">{hp.snapshot.battery !== null ? `${hp.snapshot.battery}%` : '—'}</div>
-                    <div className="stat-label">Battery</div>
-                  </div>
-                  <div>
-                    <div className="stat-value">{mode ? labelForMode(mode) : '—'}</div>
-                    <div className="stat-label">Noise control</div>
-                  </div>
-                  <button onClick={hp.refreshBattery} disabled={hp.busy}>
-                    Refresh
-                  </button>
-                </div>
-                <div className="battery-track">
-                  <div className="battery-fill" style={{ width: `${hp.snapshot.battery ?? 0}%` }} />
-                </div>
+            {/* Device strip — identity + battery at a glance */}
+            <section className="device-strip">
+              <div className="device-id">
+                <span className={`connection-dot on`} />
+                <h2 className="device-name">{hp.deviceName}</h2>
               </div>
-
-              <div className="card">
-                <div className="card-title">Sound mode</div>
-                <div className="card-row" style={{ gap: 'var(--sp-2)' }}>
-                  {Object.values(SOUND_MODE)
-                    .filter((v) => v !== SOUND_MODE.off)
-                    .map((m) => (
-                      <button
-                        key={m}
-                        className={hp.snapshot.soundMode === m ? 'btn-primary' : undefined}
-                        disabled={hp.busy}
-                        onClick={() => hp.setSoundMode(m).catch(() => undefined)}
-                      >
-                        {SOUND_MODE_NAMES[m]}
-                      </button>
-                    ))}
+              <div className="device-battery">
+                <div className="battery-glyph" aria-hidden="true">
+                  <div
+                    className={`battery-body ${hp.snapshot.battery !== null && hp.snapshot.battery <= 20 ? 'low' : ''}`}
+                    style={{ width: `${Math.max(hp.snapshot.battery ?? 0, 4)}%` }}
+                  />
                 </div>
-                <div className="hint">
-                  Sound Personalization requires a calibrated profile on the headphones and Better Compatibility mode;
-                  the device rejects the switch otherwise.
-                </div>
+                <span className="battery-num">{hp.snapshot.battery !== null ? `${hp.snapshot.battery}%` : '—'}</span>
+                <button
+                  className="btn-ghost"
+                  onClick={hp.refreshBattery}
+                  disabled={hp.busy}
+                  title="Re-read battery level"
+                >
+                  Refresh
+                </button>
               </div>
             </section>
 
-            {/* Noise control */}
+            {/* Sound — noise control + sound mode + bass in one card */}
             <section className="card">
-              <div className="card-row">
-                <div className="card-title">Noise control</div>
-                {hp.snapshot.ancModes && (
-                  <div className="hint">
-                    adaptive {hp.snapshot.ancModes.adaptiveEnabled ? 'on' : 'off'} · antiwind{' '}
-                    {['off', 'max', 'auto'][hp.snapshot.ancModes.antiWind] ?? hp.snapshot.ancModes.antiWind} · comfort{' '}
-                    {hp.snapshot.ancModes.comfortEnabled ? 'on' : 'off'}
-                  </div>
-                )}
-              </div>
+              <div className="card-title">Sound</div>
+
+              <div className="control-label">Noise control</div>
               <div className="segmented">
                 {NOISE_MODES.map((m) => (
                   <button key={m.id} className={mode === m.id ? 'active' : undefined} disabled={hp.busy} onClick={() => handleNoiseMode(m.id)}>
@@ -342,23 +314,65 @@ export default function Home() {
                     max={100}
                     value={transparencyLevel}
                     disabled={hp.busy}
+                    style={{ ['--fill' as string]: `${transparencyLevel}%` }}
                     onChange={(e) => onLevelChange(Number(e.target.value))}
                   />
                   <span className="level-value">{transparencyLevel}%</span>
                 </div>
               )}
+              {hp.snapshot.ancModes && (
+                <details className="device-details">
+                  <summary>Adaptive ANC details</summary>
+                  <div className="hint">
+                    adaptive {hp.snapshot.ancModes.adaptiveEnabled ? 'on' : 'off'} · antiwind{' '}
+                    {['off', 'max', 'auto'][hp.snapshot.ancModes.antiWind] ?? hp.snapshot.ancModes.antiWind} · comfort{' '}
+                    {hp.snapshot.ancModes.comfortEnabled ? 'on' : 'off'}
+                  </div>
+                </details>
+              )}
+
+              <div className="control-label">Sound mode</div>
+              <div className="pill-row">
+                {Object.values(SOUND_MODE)
+                  .filter((v) => v !== SOUND_MODE.off)
+                  .map((m) => (
+                    <button
+                      key={m}
+                      className={`pill ${hp.snapshot.soundMode === m ? 'pill-active' : ''}`}
+                      disabled={hp.busy}
+                      onClick={() => hp.setSoundMode(m).catch(() => undefined)}
+                    >
+                      {SOUND_MODE_NAMES[m]}
+                    </button>
+                  ))}
+              </div>
+              <div className="hint">
+                Sound Personalization requires a calibrated profile on the headphones and Better Compatibility mode;
+                the device rejects the switch otherwise.
+              </div>
+
+              <div className="toggle-row">
+                <div>
+                  <div className="toggle-label">Bass boost</div>
+                  <div className="toggle-sub">device-side bass enhancement</div>
+                </div>
+                <button
+                  aria-pressed={!!hp.snapshot.bassBoost}
+                  className={`switch ${hp.snapshot.bassBoost ? 'on' : ''}`}
+                  disabled={hp.busy || hp.snapshot.bassBoost === null}
+                  onClick={() => hp.setBassBoost(!hp.snapshot.bassBoost).catch(() => undefined)}
+                />
+              </div>
             </section>
 
             {/* Equalizer */}
             <section className="card">
               <div className="card-row">
                 <div className="card-title">Equalizer</div>
-                {hp.snapshot.eqConfig ? (
+                {hp.snapshot.eqConfig && (
                   <div className="hint">
                     {hp.snapshot.eqConfig.bandCount} bands · {hp.snapshot.eqConfig.minGainDb} to +{hp.snapshot.eqConfig.maxGainDb} dB
                   </div>
-                ) : (
-                  <div className="hint">EQ config not read yet</div>
                 )}
               </div>
               {eqBands && hp.snapshot.eqConfig ? (
@@ -384,7 +398,7 @@ export default function Home() {
                     ))}
                   </div>
                   <div className="card-row">
-                    <div className="hint">mono {eqSummary}</div>
+                    <div className="hint">Drag a band to shape it — changes apply after a short pause.</div>
                     <button
                       disabled={hp.busy}
                       onClick={() => {
@@ -392,38 +406,25 @@ export default function Home() {
                         hp.setEqBands(eqBands.map(() => 0)).catch(() => undefined);
                       }}
                     >
-                      Flatten
+                      Flatten all
                     </button>
                   </div>
                 </>
               ) : (
                 <div className="hint">Connect to a device that exposes the EQ service to edit bands.</div>
               )}
-              <div className="toggle-row">
-                <div>
-                  <div className="toggle-label">Bass boost</div>
-                  <div className="toggle-sub">device-side bass enhancement</div>
-                </div>
-                <button
-                  aria-pressed={!!hp.snapshot.bassBoost}
-                  className={`switch ${hp.snapshot.bassBoost ? 'on' : ''}`}
-                  disabled={hp.busy || hp.snapshot.bassBoost === null}
-                  onClick={() => hp.setBassBoost(!hp.snapshot.bassBoost).catch(() => undefined)}
-                />
-              </div>
             </section>
 
-            {/* Protocol console */}
-            <section className="card">
-              <div className="card-row">
-                <div className="card-title">Protocol console</div>
-                <button onClick={() => setShowConsole((v) => !v)}>{showConsole ? 'Hide' : 'Show'}</button>
-              </div>
-              {showConsole && <Console lines={hp.protocol} ref={consoleRef} />}
+            {/* Protocol console — collapsed by default */}
+            <details className="console-details" onToggle={onConsoleToggle}>
+              <summary>
+                Protocol console <span className="console-count">{hp.protocol.length} frames</span>
+              </summary>
               <div className="hint">
                 Every GAIA frame in and out, byte for byte. If your model is not yet supported, paste this log into an issue.
               </div>
-            </section>
+              <Console lines={hp.protocol} ref={consoleRef} />
+            </details>
           </>
         )}
       </main>
@@ -434,10 +435,6 @@ export default function Home() {
       </footer>
     </div>
   );
-}
-
-function labelForMode(mode: NoiseMode): string {
-  return NOISE_MODES.find((m) => m.id === mode)?.label ?? mode;
 }
 
 function Console({ lines, ref }: { lines: ProtocolLine[]; ref: React.RefObject<HTMLDivElement | null> }) {
