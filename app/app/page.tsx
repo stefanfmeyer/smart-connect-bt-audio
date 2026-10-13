@@ -189,55 +189,76 @@ export default function Home() {
         )}
 
         {hp.status !== 'connected' ? (
-          <section className="hero">
-            <div className="hero-glyph" aria-hidden="true">
-              {/* Same headphone+wave mark as the app icon, inline SVG */}
-              <svg viewBox="0 0 512 512" width="72" height="72">
-                <g fill="none" stroke="currentColor" strokeLinecap="round">
-                  <path d="M 142 292 A 114 114 0 0 1 370 292" strokeWidth="30" />
-                  <path d="M 214 226 a 54 54 0 0 1 84 0" strokeWidth="26" />
-                  <path d="M 238 250 a 26 26 0 0 1 36 0" strokeWidth="26" />
-                </g>
-                <circle cx="256" cy="270" r="13" fill="currentColor" />
-                <rect x="116" y="264" width="58" height="104" rx="27" fill="currentColor" />
-                <rect x="338" y="264" width="58" height="104" rx="27" fill="currentColor" />
-              </svg>
-            </div>
-            <h1>{'Your headphones. Full control.'}</h1>
-            <p className="hero-sub">
-              Noise cancelling, equalizer, bass and sound modes &mdash; straight over Bluetooth. No account, no cloud:
-              everything stays on this machine.
-            </p>
-
-            <div className="hero-connect">
-              <button
-                className="btn-primary btn-lg btn-block"
-                onClick={() => handleConnect()}
-                disabled={!webBluetoothSupported || hp.status === 'connecting'}
-              >
-                {hp.status === 'connecting' ? 'Connecting…' : 'Connect your headphones'}
-              </button>
-              <div className="hero-connect-alt">
-                Headphones not showing up?{' '}
-                <button className="link-btn" onClick={() => handleConnect(true)} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
-                  Scan all devices
-                </button>
+          <section className="home">
+            {/* Connect card — the one action this screen exists for */}
+            <div className="home-connect-card">
+              <div className="home-glyph" aria-hidden="true">
+                {/* Same headphone+wave mark as the app icon */}
+                <svg viewBox="0 0 512 512" width="96" height="96">
+                  <g fill="none" stroke="currentColor" strokeLinecap="round">
+                    <path d="M 142 292 A 114 114 0 0 1 370 292" strokeWidth="30" />
+                    <path d="M 214 226 a 54 54 0 0 1 84 0" strokeWidth="26" />
+                    <path d="M 238 250 a 26 26 0 0 1 36 0" strokeWidth="26" />
+                  </g>
+                  <circle cx="256" cy="270" r="13" fill="currentColor" />
+                  <rect x="116" y="264" width="58" height="104" rx="27" fill="currentColor" />
+                  <rect x="338" y="264" width="58" height="104" rx="27" fill="currentColor" />
+                </svg>
+              </div>
+              <div className="home-connect-body">
+                <h1>Connect your headphones</h1>
+                <p>
+                  Take them out of the case and make sure they&rsquo;re powered on. Smart Connect finds the right
+                  control channel itself and remembers it for next time.
+                </p>
+                <div className="home-connect-actions">
+                  <button
+                    className="btn-primary btn-lg"
+                    onClick={() => handleConnect()}
+                    disabled={!webBluetoothSupported || hp.status === 'connecting'}
+                  >
+                    {hp.status === 'connecting' ? 'Connecting…' : 'Connect headphones'}
+                  </button>
+                  <button className="link-btn" onClick={() => handleConnect(true)} disabled={!webBluetoothSupported || hp.status === 'connecting'}>
+                    Scan all devices
+                  </button>
+                </div>
+                <div className="home-reassure">No account &middot; No cloud &middot; Everything stays on this machine</div>
               </div>
             </div>
 
-            <div className="hero-grid">
-              <div className="hero-tile">
-                <div className="tile-title">Pair once</div>
-                <div className="step-text">Pair your headphones in your system&rsquo;s Bluetooth settings, as usual.</div>
+            {/* What you get once connected — the same cards, previewed muted */}
+            <div className="home-preview-label">Once connected you can</div>
+            <div className="home-previews">
+              <div className="preview-tile">
+                <div className="preview-title">Noise control</div>
+                <div className="mock-segmented">
+                  <span className="mock-active" />
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div className="mock-slider">
+                  <div className="mock-slider-fill" style={{ width: '62%' }} />
+                </div>
               </div>
-              <div className="hero-tile">
-                <div className="tile-title">Wake them up</div>
-                <div className="step-text">Out of the case, powered on &mdash; idle headphones may stop advertising.</div>
+              <div className="preview-tile">
+                <div className="preview-title">Equalizer</div>
+                <div className="mock-bars">
+                  {[34, 62, 50, 74, 42].map((h, i) => (
+                    <span key={i} style={{ height: `${h}%` }} />
+                  ))}
+                </div>
               </div>
-              <div className="hero-tile">
-                <div className="tile-title">Close the vendor app</div>
-                <div className="step-text">
-                  The official app holds the same control socket &mdash; both fight over it if both are open.
+              <div className="preview-tile">
+                <div className="preview-title">Sound modes</div>
+                <div className="mock-pills">
+                  <span className="mock-active" />
+                  <span />
+                  <span />
+                </div>
+                <div className="mock-slider">
+                  <div className="mock-slider-fill" style={{ width: '38%' }} />
                 </div>
               </div>
             </div>
@@ -264,8 +285,8 @@ export default function Home() {
                 </p>
                 <p>
                   Nothing in the picker? Use <strong>Scan all devices</strong> and select them by name or raw id &mdash;
-                  some models hide their name from Chrome&rsquo;s filter. If a connect fails, toggle the headphones
-                  off/on so the system refreshes its cache, then retry.
+                  some models hide their name from Chrome&rsquo;s filter. If a connect fails, close the official vendor
+                  app first (it holds the same control socket), toggle the headphones off/on, then retry.
                 </p>
                 <p>
                   Every command is logged in the protocol console (shown after connecting) &mdash; paste it into an
