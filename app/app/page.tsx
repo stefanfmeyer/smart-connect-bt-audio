@@ -114,6 +114,18 @@ export default function Home() {
       )}
       <header className="app-header">
         <div className="app-logo">
+          <span className="logo-glyph" aria-hidden="true">
+            <svg viewBox="0 0 512 512" width="16" height="16">
+              <g fill="none" stroke="currentColor" strokeLinecap="round">
+                <path d="M 142 292 A 114 114 0 0 1 370 292" strokeWidth="34" />
+                <path d="M 214 226 a 54 54 0 0 1 84 0" strokeWidth="30" />
+                <path d="M 238 250 a 26 26 0 0 1 36 0" strokeWidth="30" />
+              </g>
+              <circle cx="256" cy="270" r="15" fill="currentColor" />
+              <rect x="116" y="264" width="58" height="104" rx="27" fill="currentColor" />
+              <rect x="338" y="264" width="58" height="104" rx="27" fill="currentColor" />
+            </svg>
+          </span>
           Smart Connect <span className="version-pill">v{APP_VERSION}</span>
         </div>
         <div className="app-header-right">
@@ -166,14 +178,14 @@ export default function Home() {
           </div>
         )}
         {updateState.phase === 'failed' && (
-          <div className="banner">
+          <div className="banner banner-err">
             <span>Update check failed (app keeps working): {updateState.error}</span>
             <button onClick={() => setUpdateState(IDLE_UPDATE)}>Dismiss</button>
           </div>
         )}
 
         {!webBluetoothSupported && (
-          <div className="banner">
+          <div className="banner banner-err">
             <span>
               This browser does not expose Web Bluetooth. Use Chrome, Edge or Opera on a desktop with Bluetooth, served over
               HTTPS or localhost.
@@ -182,7 +194,7 @@ export default function Home() {
         )}
 
         {hp.error && (
-          <div className="banner">
+          <div className="banner banner-err">
             <span>{hp.error}</span>
             <button onClick={hp.clearError}>Dismiss</button>
           </div>

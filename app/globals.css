@@ -178,6 +178,18 @@ h1, h2, h3, h4, h5, h6 {
   white-space: nowrap;
 }
 
+.logo-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+}
+
 .version-pill {
   display: inline-flex;
   align-items: center;
@@ -217,7 +229,7 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--text-faint);
   flex: none;
 }
-.connection-dot.on { background: var(--accent-hover); box-shadow: 0 0 6px rgba(255, 255, 255, 0.45); }
+.connection-dot.on { background: var(--accent-hover); }
 .connection-dot.wait { background: var(--text-muted); animation: pulse 1.2s ease-in-out infinite; }
 
 @keyframes pulse {
@@ -410,6 +422,7 @@ button:disabled, .btn:disabled {
   font-size: 16px;
   font-weight: 600;
   min-width: 44px;
+  font-variant-numeric: tabular-nums;
 }
 
 .btn-ghost {
@@ -847,10 +860,11 @@ button:disabled, .btn:disabled {
 /* ---------------------------------------------------------------------------
    Status & errors
    --------------------------------------------------------------------------- */
+/* Status & errors — two designed states: neutral (progress/info) and error */
 .banner {
-  border: 1px solid var(--err-border);
+  border: 1px solid var(--border);
   background: var(--bg-inset);
-  color: var(--err-text);
+  color: var(--text-secondary);
   border-radius: var(--r-md);
   padding: var(--sp-3) var(--sp-4);
   font-size: 13px;
@@ -858,6 +872,11 @@ button:disabled, .btn:disabled {
   justify-content: space-between;
   align-items: center;
   gap: var(--sp-3);
+}
+
+.banner.banner-err {
+  border-color: var(--err-border);
+  color: var(--err-text);
 }
 
 .banner button {
@@ -990,6 +1009,7 @@ button:disabled, .btn:disabled {
   color: var(--text-secondary);
   min-width: 44px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Toggles */
@@ -1088,7 +1108,20 @@ button:disabled, .btn:disabled {
   border-top: 1px solid var(--border);
   padding: var(--sp-5) var(--sp-6);
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-faint);
   text-align: center;
+  max-width: 720px;
+  margin: 0 auto;
+  line-height: 1.6;
 }
-.app-footer a { color: var(--text-secondary); }
+.app-footer a { color: var(--text-muted); }
+
+/* Reduced motion: stills the spinner and pulse but keeps the overlay usable */
+@media (prefers-reduced-motion: reduce) {
+  .connect-overlay .spinner {
+    animation: none;
+    border-top-color: var(--text-secondary);
+  }
+  .connection-dot.wait { animation: none; opacity: 0.7; }
+  * { transition-duration: 0.01ms !important; }
+}
