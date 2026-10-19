@@ -1,7 +1,7 @@
 # Smart Connect
 
 An unofficial, open-source **Windows + Linux desktop app** that controls Bluetooth headphones
-directly: noise cancelling modes, equalizer, bass boost, sound modes and battery.
+directly: noise cancelling modes, bass boost, sound modes and battery.
 No account, no cloud — everything runs locally on your machine, speaking the same
 **GAIA** control protocol (Bluetooth Classic RFCOMM) the vendor apps use.
 Sennheiser MOMENTUM is the primary/verified hardware; other GAIA-speaking models work too.
@@ -13,8 +13,7 @@ UI uses the monochrome Longship theme. Primary/verified hardware: **MOMENTUM 4 W
 
 - **Noise control** — Off / Noise Cancelling (manual) / Adaptive / Transparency, with a
   transparency level slider (0-100).
-- **Equalizer** — band count and gain range are read from the headphones, so the editor adapts
-  to the device; plus bass boost toggle.
+- **Bass boost** — device-side bass enhancement toggle.
 - **Sound modes** — Equalizer / Podcast / Sound Personalization (the device rejects Sound
   Personalization unless a calibrated profile exists and Better Compatibility mode is active).
 - **Battery** status with live read-back after every change.

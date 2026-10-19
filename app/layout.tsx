@@ -18,7 +18,7 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: 'Smart Connect',
   description:
-    'Free desktop app for Windows and Linux to control Bluetooth headphones: noise cancelling, equalizer, sound modes and battery. Sennheiser MOMENTUM verified. Not affiliated with Sennheiser or Sonova.',
+    'Free desktop app for Windows and Linux to control Bluetooth headphones: noise cancelling, sound modes and battery. Sennheiser MOMENTUM verified. Not affiliated with Sennheiser or Sonova.',
 };
 
 export const viewport: Viewport = {

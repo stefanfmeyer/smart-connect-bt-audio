@@ -14,20 +14,14 @@ const NOISE_MODES: Array<{ id: NoiseMode; label: string }> = [
   { id: 'transparency', label: 'Transparency' },
 ];
 
-// Common frequency labels for typical Sennheiser 5-band EQ; the device reports
-// band count and gain range, not center frequencies.
-const BAND_LABELS = ['100 Hz', '315 Hz', '1 kHz', '3.15 kHz', '8 kHz', '12 kHz', '16 kHz', '20 kHz'];
-
 export default function Home() {
   const hp = useHeadphones();
   const [showConsole, setShowConsole] = useState(false);
   const [localLevel, setLocalLevel] = useState<number | null>(null);
-  const [localEq, setLocalEq] = useState<number[] | null>(null);
   const [mounted, setMounted] = useState(false);
   const [onDesk, setOnDesk] = useState(false);
   const [updateState, setUpdateState] = useState<UpdateState>(IDLE_UPDATE);
   const levelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const eqTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consoleRef = useRef<HTMLDivElement | null>(null);
 
   function onConsoleToggle(e: React.SyntheticEvent<HTMLDetailsElement>) {
@@ -56,7 +50,6 @@ export default function Home() {
     }
   }, [showConsole, hp.protocol]);
 
-  const eqBands = localEq ?? hp.snapshot.eqBands;
   const transparencyLevel = localLevel ?? hp.snapshot.transparencyLevel ?? 100;
   const mode = hp.mode;
 
@@ -84,18 +77,6 @@ export default function Home() {
       hp.setTransparencyLevel(value).catch(() => undefined);
       setLocalLevel(null);
     }, 350);
-  }
-
-  function onEqChange(band: number, gain: number) {
-    if (!eqBands) return;
-    const next = [...eqBands];
-    next[band] = gain;
-    setLocalEq(next);
-    if (eqTimer.current) clearTimeout(eqTimer.current);
-    eqTimer.current = setTimeout(() => {
-      hp.setEqBand(band, gain).catch(() => undefined);
-      setLocalEq(null);
-    }, 400);
   }
 
   return (
@@ -255,11 +236,13 @@ export default function Home() {
                 </div>
               </div>
               <div className="preview-tile">
-                <div className="preview-title">Equalizer</div>
-                <div className="mock-bars">
-                  {[34, 62, 50, 74, 42].map((h, i) => (
-                    <span key={i} style={{ height: `${h}%` }} />
-                  ))}
+                <div className="preview-title">Bass boost</div>
+                <div className="mock-pills">
+                  <span className="mock-active" />
+                  <span />
+                </div>
+                <div className="mock-slider">
+                  <div className="mock-slider-fill" style={{ width: '38%' }} />
                 </div>
               </div>
               <div className="preview-tile">
@@ -403,56 +386,6 @@ export default function Home() {
                   onClick={() => hp.setBassBoost(!hp.snapshot.bassBoost).catch(() => undefined)}
                 />
               </div>
-            </section>
-
-            {/* Equalizer */}
-            <section className="card">
-              <div className="card-row">
-                <div className="card-title">Equalizer</div>
-                {hp.snapshot.eqConfig && (
-                  <div className="hint">
-                    {hp.snapshot.eqConfig.bandCount} bands · {hp.snapshot.eqConfig.minGainDb} to +{hp.snapshot.eqConfig.maxGainDb} dB
-                  </div>
-                )}
-              </div>
-              {eqBands && hp.snapshot.eqConfig ? (
-                <>
-                  <div className="eq-grid">
-                    {eqBands.map((gain, band) => (
-                      <div className="eq-band" key={band}>
-                        <span className="eq-gain">
-                          {gain > 0 ? '+' : ''}
-                          {gain.toFixed(1)}
-                        </span>
-                        <input
-                          type="range"
-                          min={hp.snapshot.eqConfig!.minGainDb * 10}
-                          max={hp.snapshot.eqConfig!.maxGainDb * 10}
-                          step={1}
-                          value={Math.round(gain * 10)}
-                          disabled={hp.busy}
-                          onChange={(e) => onEqChange(band, Number(e.target.value) / 10)}
-                        />
-                        <span className="eq-freq">{BAND_LABELS[band] ?? `Band ${band + 1}`}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="card-row">
-                    <div className="hint">Drag a band to shape it — changes apply after a short pause.</div>
-                    <button
-                      disabled={hp.busy}
-                      onClick={() => {
-                        if (!eqBands) return;
-                        hp.setEqBands(eqBands.map(() => 0)).catch(() => undefined);
-                      }}
-                    >
-                      Flatten all
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="hint">Connect to a device that exposes the EQ service to edit bands.</div>
-              )}
             </section>
 
             {/* Protocol console — collapsed by default */}

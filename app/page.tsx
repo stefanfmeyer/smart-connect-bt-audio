@@ -9,12 +9,12 @@ const FEATURES = [
     body: 'Off, Noise Cancelling, Adaptive and Transparency — with a transparency level slider from full ANC to full awareness, exactly like the official app.',
   },
   {
-    title: 'Equalizer & bass boost',
-    body: 'The editor reads band count and gain range from your headphones and adapts to them. Flat-line everything with one click, or push the low end with bass boost.',
+    title: 'Bass boost',
+    body: 'A device-side bass enhancement toggle — push the low end with one switch, straight over Bluetooth.',
   },
   {
     title: 'Sound modes',
-    body: 'Equalizer, Podcast and Sound Personalization modes, switching directly on the headphones — including the guards the device itself enforces.',
+    body: 'Equalizer, Podcast and Sound Personalization listening modes, switching directly on the headphones — including the guards the device itself enforces.',
   },
   {
     title: 'Battery',
@@ -55,7 +55,7 @@ export default function Home() {
           </h1>
           <p>
             A free desktop app for Windows and Linux that drives your headphones over their native GAIA control
-            channel: noise cancelling, equalizer, sound modes and battery — all local, all direct Bluetooth.
+            channel: noise cancelling, sound modes and battery — all local, all direct Bluetooth.
             Built and verified on the Sennheiser MOMENTUM 4 Wireless; other GAIA-speaking models work too.
           </p>
           <div className="hero-meta">
