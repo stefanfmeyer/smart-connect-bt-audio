@@ -13,7 +13,7 @@
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.14.0",
-    "next": "^15.5.28",
+    "next": "^15.5.29",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
